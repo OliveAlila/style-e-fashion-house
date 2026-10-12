@@ -4,7 +4,6 @@ import cors from 'cors';
 import helmet from 'helmet';
 import crypto from 'node:crypto';
 import pg from 'pg';
-const cors = require("cors");
 const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 4000;
