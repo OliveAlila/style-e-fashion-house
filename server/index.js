@@ -18,8 +18,19 @@ const allowedOrigins = [
   'http://172.20.48.1:5173',
 ].filter(Boolean);
 
+// Allow this project's Vercel production and deployment URLs. Vercel creates
+// a different origin for preview/deployment URLs, so exact-only matching can
+// break admin requests when a deployment URL changes.
+const isAllowedOrigin = (origin) =>
+  !origin ||
+  allowedOrigins.includes(origin) ||
+  /^https:\/\/style-e-fashion-house(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin);
+
 app.use(cors({
-  origin: allowedOrigins,
+  origin: (origin, callback) => {
+    if (isAllowedOrigin(origin)) return callback(null, true);
+    return callback(new Error('Origin is not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
@@ -49,7 +60,7 @@ const safeProduct = r => ({...r, sizes:r.sizes, colors:r.colors, price:Number(r.
 app.get('/api/health',(req,res)=>res.json({ok:true,service:'STYLE E-Fashion API'}));
 app.get('/api/products',async(req,res,next)=>{try{const {category,search}=req.query;const vals=[];let where='active=TRUE';if(category&&category!=='All'){vals.push(category);where+=' AND category=$'+vals.length;}if(search){vals.push('%'+String(search).slice(0,80)+'%');where+=' AND (name ILIKE $'+vals.length+' OR description ILIKE $'+vals.length+')';}const r=await pool.query(`SELECT * FROM products WHERE ${where} ORDER BY id`,vals);res.json(r.rows.map(safeProduct));}catch(e){next(e)}});
 app.get('/api/products/:id',async(req,res,next)=>{try{const r=await pool.query('SELECT * FROM products WHERE id=$1 AND active=TRUE',[req.params.id]);if(!r.rowCount)return res.status(404).json({error:'Product not found'});res.json(safeProduct(r.rows[0]));}catch(e){next(e)}});
-function admin(req,res,next){const supplied=Buffer.from((req.headers.authorization||'').replace(/^Bearer\\s+/i,''));const configured=Buffer.from(process.env.ADMIN_TOKEN||'');if(!configured.length||supplied.length!==configured.length||!crypto.timingSafeEqual(supplied,configured))return res.status(401).json({error:'Admin authorization required'});next();}
+function admin(req,res,next){const supplied=Buffer.from((req.headers.authorization||'').replace(/^Bearer\s+/i,''));const configured=Buffer.from(process.env.ADMIN_TOKEN||'');if(!configured.length||supplied.length!==configured.length||!crypto.timingSafeEqual(supplied,configured))return res.status(401).json({error:'Admin authorization required'});next();}
 app.use('/api/admin', createAdminRouter({ pool, admin, paystackSecret: process.env.PAYSTACK_SECRET_KEY }));
 app.get('/api/admin/orders',admin,async(req,res,next)=>{try{const r=await pool.query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 200');res.json(r.rows)}catch(e){next(e)}});
 app.patch('/api/admin/orders/:id',admin,async(req,res,next)=>{try{const allowed=['processing','dispatched','delivered','cancelled','refunded'];if(!allowed.includes(req.body.order_status))return res.status(400).json({error:'Invalid order status'});const r=await pool.query('UPDATE orders SET order_status=$1 WHERE id=$2 RETURNING *',[req.body.order_status,req.params.id]);if(!r.rowCount)return res.status(404).json({error:'Order not found'});res.json(r.rows[0])}catch(e){next(e)}});
