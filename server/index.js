@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import crypto from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { createAdminRouter } from './admin.js';
 const { Pool } = pg;
@@ -53,6 +54,11 @@ async function init(){
  await pool.query(`CREATE TABLE IF NOT EXISTS products(id SERIAL PRIMARY KEY,name TEXT NOT NULL,category TEXT NOT NULL,type TEXT NOT NULL,price INTEGER NOT NULL CHECK(price>=0),images TEXT NOT NULL,description TEXT NOT NULL,sizes JSONB NOT NULL,colors JSONB NOT NULL,stock INTEGER NOT NULL DEFAULT 0,active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ DEFAULT NOW())`);
  await pool.query(`CREATE TABLE IF NOT EXISTS orders(id BIGSERIAL PRIMARY KEY,reference TEXT UNIQUE NOT NULL,customer_name TEXT NOT NULL,email TEXT NOT NULL,phone TEXT NOT NULL,address TEXT NOT NULL,town TEXT NOT NULL,county TEXT NOT NULL,delivery_method TEXT NOT NULL,items JSONB NOT NULL,subtotal INTEGER NOT NULL,delivery_fee INTEGER NOT NULL,total INTEGER NOT NULL,currency TEXT NOT NULL DEFAULT 'KES',payment_status TEXT NOT NULL DEFAULT 'pending',order_status TEXT NOT NULL DEFAULT 'pending_payment',created_at TIMESTAMPTZ DEFAULT NOW(),paid_at TIMESTAMPTZ)`);
  await pool.query(`CREATE TABLE IF NOT EXISTS payment_events(id BIGSERIAL PRIMARY KEY,event_id TEXT UNIQUE NOT NULL,reference TEXT NOT NULL,event_type TEXT NOT NULL,received_at TIMESTAMPTZ DEFAULT NOW())`);
+ // Apply additive admin schema changes before the API starts accepting requests.
+ // This keeps existing product/order data and makes new admin tables available.
+ const adminMigration = await readFile(new URL('./migrations/001_admin_features.sql', import.meta.url), 'utf8');
+ await pool.query(adminMigration);
+ console.log('Admin database migration applied.');
  const count=(await pool.query('SELECT COUNT(*)::int AS n FROM products')).rows[0].n;
  if(!count) for(const p of seed) await pool.query('INSERT INTO products(name,category,type,price,images,description,sizes,colors,stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[p.name,p.category,p.type,p.price,p.images,p.description,JSON.stringify(p.sizes),JSON.stringify(p.colors),p.stock]);
 }
