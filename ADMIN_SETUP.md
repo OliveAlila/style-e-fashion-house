@@ -9,8 +9,9 @@ This branch adds a token-protected admin API router, responsive React admin scre
 3. In pgAdmin, connect to the database named `style_fashion_db`, open Query Tool, load `server/migrations/001_admin_features.sql`, and execute it. Confirm the query completes and that `store_settings`, `coupons`, `refund_records`, `coupon_redemptions`, and `admin_audit_log` exist in schema `public`.
 4. Do not deploy code that queries the new tables before the migration completes.
 5. Configure Render environment variables: `DATABASE_URL`, `PGSSL`, `CLIENT_URL`, `PAYSTACK_SECRET_KEY`, `ADMIN_TOKEN`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`. Generate a long random ADMIN_TOKEN and never put it in Vercel variables.
-6. Configure Vercel `VITE_API_URL=https://style-e-fashion-house.onrender.com/api`. This is a public API URL, not a secret.
-7. Deploy the branch only after review and staging tests; do not run a live refund to test it.
+6. In Cloudinary, open the Console dashboard and copy the cloud name, API key, and API secret into the three `CLOUDINARY_*` environment variables on Render. Do not add `CLOUDINARY_API_SECRET` to Vercel or any `VITE_*` variable. The admin photo uploader uses a protected server endpoint to sign each upload.
+7. Configure Vercel `VITE_API_URL=https://style-e-fashion-house.onrender.com/api`. This is a public API URL, not a secret.
+8. Deploy the branch only after review and staging tests; do not run a live refund to test it.
 
 ## Windows local setup
 From the repository root in Command Prompt:
@@ -25,6 +26,7 @@ Edit `server\.env` with a development database URL, a long random ADMIN_TOKEN, C
 ## Admin API overview
 All routes below require `Authorization: Bearer <ADMIN_TOKEN>`:
 - `GET/POST /api/admin/products`
+- `POST /api/admin/uploads/sign` (admin-protected Cloudinary upload signature)
 - `PATCH /api/admin/products/:id`
 - `POST /api/admin/products/:id/archive`
 - `GET /api/admin/orders`, `GET /api/admin/orders/:id`, `PATCH /api/admin/orders/:id`
