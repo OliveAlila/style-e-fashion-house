@@ -1,0 +1,22 @@
+BEGIN;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS discount_percent NUMERIC(5,2) NOT NULL DEFAULT 0;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS variants JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS image_gallery JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS discount_amount INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS coupon_code TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_status TEXT NOT NULL DEFAULT 'none';
+DO $$ BEGIN
+IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='products_discount_percent_range') THEN ALTER TABLE public.products ADD CONSTRAINT products_discount_percent_range CHECK(discount_percent BETWEEN 0 AND 100); END IF;
+IF NOT EXISTS(SELECT 1 FROM pg_constraint WHERE conname='orders_discount_amount_nonnegative') THEN ALTER TABLE public.orders ADD CONSTRAINT orders_discount_amount_nonnegative CHECK(discount_amount>=0); END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS public.store_settings(key TEXT PRIMARY KEY,value JSONB NOT NULL,updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+INSERT INTO public.store_settings(key,value) VALUES('delivery_fees','{"standard":250,"express":450}'::jsonb),('currency','"KES"'::jsonb) ON CONFLICT(key) DO NOTHING;
+CREATE TABLE IF NOT EXISTS public.coupons(id BIGSERIAL PRIMARY KEY,code TEXT NOT NULL UNIQUE,discount_type TEXT NOT NULL CHECK(discount_type IN('percentage','fixed')),discount_value NUMERIC(12,2) NOT NULL CHECK(discount_value>0),minimum_order INTEGER NOT NULL DEFAULT 0 CHECK(minimum_order>=0),expires_at TIMESTAMPTZ,usage_limit INTEGER CHECK(usage_limit IS NULL OR usage_limit>0),usage_count INTEGER NOT NULL DEFAULT 0 CHECK(usage_count>=0),active BOOLEAN NOT NULL DEFAULT TRUE,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),CHECK(discount_type<>'percentage' OR discount_value<=100));
+CREATE TABLE IF NOT EXISTS public.refund_records(id BIGSERIAL PRIMARY KEY,order_id BIGINT NOT NULL REFERENCES public.orders(id),amount INTEGER NOT NULL CHECK(amount>0),reason TEXT NOT NULL,idempotency_key TEXT NOT NULL UNIQUE,paystack_reference TEXT,status TEXT NOT NULL CHECK(status IN('pending','processing','success','failed','uncertain')),provider_response JSONB,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.coupon_redemptions(id BIGSERIAL PRIMARY KEY,coupon_id BIGINT NOT NULL REFERENCES public.coupons(id),order_id BIGINT NOT NULL UNIQUE REFERENCES public.orders(id),amount INTEGER NOT NULL CHECK(amount>=0),created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS public.admin_audit_log(id BIGSERIAL PRIMARY KEY,action TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT,details JSONB NOT NULL DEFAULT '{}'::jsonb,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+CREATE INDEX IF NOT EXISTS products_active_category_idx ON public.products(active,category);
+CREATE INDEX IF NOT EXISTS orders_created_at_idx ON public.orders(created_at DESC);
+CREATE INDEX IF NOT EXISTS refund_records_order_status_idx ON public.refund_records(order_id,status);
+COMMIT;
