@@ -11,15 +11,19 @@ const pool = new Pool({ connectionString: process.env.DATABASE_URL, ssl: process
 app.use(helmet());
 const allowedOrigins = [
   process.env.CLIENT_URL,
+  'https://style-e-fashion-house-v8va-lime.vercel.app',
   'http://localhost:5173',
   'http://127.0.0.1:5173',
-  'http://172.20.48.1:5173'
-];
+  'http://172.20.48.1:5173',
+].filter(Boolean);
 
 app.use(cors({
   origin: allowedOrigins,
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
 // Capture raw bytes for Paystack's HMAC signature check.
 app.use(express.json({ limit:'1mb', verify:(req,res,buf)=>{req.rawBody=Buffer.from(buf);} }));
 
@@ -40,17 +44,6 @@ async function init(){
  const count=(await pool.query('SELECT COUNT(*)::int AS n FROM products')).rows[0].n;
  if(!count) for(const p of seed) await pool.query('INSERT INTO products(name,category,type,price,images,description,sizes,colors,stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[p.name,p.category,p.type,p.price,p.images,p.description,JSON.stringify(p.sizes),JSON.stringify(p.colors),p.stock]);
 }
-const allowedOrigins = [
-  "https://style-e-fashion-house-v8va-lime.vercel.app",
-];
-
-app.use(
-  cors({
-    origin: allowedOrigins,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  })
-);
 const safeProduct = r => ({...r, sizes:r.sizes, colors:r.colors, price:Number(r.price), stock:Number(r.stock)});
 app.get('/api/health',(req,res)=>res.json({ok:true,service:'STYLE E-Fashion API'}));
 app.get('/api/products',async(req,res,next)=>{try{const {category,search}=req.query;const vals=[];let where='active=TRUE';if(category&&category!=='All'){vals.push(category);where+=' AND category=$'+vals.length;}if(search){vals.push('%'+String(search).slice(0,80)+'%');where+=' AND (name ILIKE $'+vals.length+' OR description ILIKE $'+vals.length+')';}const r=await pool.query(`SELECT * FROM products WHERE ${where} ORDER BY id`,vals);res.json(r.rows.map(safeProduct));}catch(e){next(e)}});
