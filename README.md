@@ -261,3 +261,8 @@ Before launch, review and test:
 * Successful, failed, duplicated, abandoned, and delayed payment scenarios.
 
 Confirm Paystack merchant eligibility and the payment channels available to your account before going live.
+
+
+## Admin dashboard
+
+The initial responsive admin dashboard and additive schema migration are documented in [ADMIN_SETUP.md](./ADMIN_SETUP.md). Review the documented production limitations before deployment; the existing checkout still needs discount, coupon, configurable-delivery, and variant-inventory integration before those features should be used for live orders.
