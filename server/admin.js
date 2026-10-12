@@ -1,7 +1,16 @@
 import express from 'express';
+import crypto from 'node:crypto';
 export function createAdminRouter({pool,admin,paystackSecret}) {
  const r=express.Router(); r.use(admin);
  const wrap=f=>(q,s,n)=>Promise.resolve(f(q,s,n)).catch(n);
+ r.post('/uploads/sign',wrap(async(q,s)=>{
+  const {CLOUDINARY_CLOUD_NAME:cloudName,CLOUDINARY_API_KEY:apiKey,CLOUDINARY_API_SECRET:apiSecret}=process.env;
+  if(!cloudName||!apiKey||!apiSecret)return s.status(503).json({error:'Cloudinary uploads are not configured on the server.'});
+  const timestamp=Math.floor(Date.now()/1000),folder='style-e-fashion-house/products';
+  const toSign=`folder=${folder}&timestamp=${timestamp}`;
+  const signature=crypto.createHash('sha1').update(toSign+apiSecret).digest('hex');
+  s.json({cloud_name:cloudName,api_key:apiKey,timestamp,folder,signature});
+ }));
  const safe=p=>({...p,price:Number(p.price),stock:Number(p.stock),discount_percent:Number(p.discount_percent||0),variants:p.variants||[],image_gallery:p.image_gallery||[]});
  function product(b={}) {
   const name=String(b.name||'').trim(),category=String(b.category||'').trim(),price=Number(b.price),stock=Number(b.stock??0),discount=Number(b.discount_percent??0);
