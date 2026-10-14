@@ -269,7 +269,7 @@ export function createMarketplaceRouter({ pool, admin }) {
   }));
 
   router.get('/admin/vendors', auth, allow('super_admin'), wrap(async (_req, res) => {
-    const vendors = (await pool.query("SELECT s.*,u.full_name,u.email,COALESCE(SUM(l.line_subtotal) FILTER (WHERE o.payment_status='paid'),0)::bigint AS gross_sales,COALESCE(SUM(l.commission_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS platform_commission,COALESCE(SUM(l.vendor_net_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS vendor_earnings FROM public.vendor_stores s JOIN public.marketplace_users u ON u.id=s.user_id LEFT JOIN public.vendor_order_lines l ON l.vendor_store_id=s.id LEFT JOIN public.orders o ON o.id=l.order_id GROUP BY s.id,u.id ORDER BY s.created_at DESC")).rows;
+    const vendors = (await pool.query("SELECT s.*,u.full_name,u.email,s.paystack_subaccount_code,s.paystack_split_code,COALESCE(SUM(l.line_subtotal) FILTER (WHERE o.payment_status='paid'),0)::bigint AS gross_sales,COALESCE(SUM(l.commission_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS platform_commission,COALESCE(SUM(l.vendor_net_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS vendor_earnings FROM public.vendor_stores s JOIN public.marketplace_users u ON u.id=s.user_id LEFT JOIN public.vendor_order_lines l ON l.vendor_store_id=s.id LEFT JOIN public.orders o ON o.id=l.order_id GROUP BY s.id,u.id ORDER BY s.created_at DESC")).rows;
     res.json(vendors.map(v=>({...v,gross_sales:Number(v.gross_sales),platform_commission:Number(v.platform_commission),vendor_earnings:Number(v.vendor_earnings)})));
   }));
   router.patch('/admin/vendors/:id/paystack-split-code', auth, allow('super_admin'), wrap(async (req, res) => {
