@@ -200,22 +200,17 @@ export function createMarketplaceRouter({ pool, admin }) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const available = Number((await client.query("SELECT COALESCE(SUM(vendor_net_amount),0)::bigint AS amount FROM public.vendor_order_lines WHERE vendor_store_id=$1 AND payout_status='eligible'", [req.vendorStore.id])).rows[0].amount);
+      const available = Number((await client.query("SELECT COALESCE(SUM(GREATEST(0,l.vendor_net_amount-COALESCE(a.reserved,0))),0)::bigint AS amount FROM public.vendor_order_lines l LEFT JOIN (SELECT a.vendor_order_line_id,SUM(a.amount)::bigint AS reserved FROM public.vendor_payout_allocations a JOIN public.vendor_payouts p ON p.id=a.payout_id WHERE p.status IN ('pending','processing','paid') GROUP BY a.vendor_order_line_id) a ON a.vendor_order_line_id=l.id WHERE l.vendor_store_id=$1 AND l.payout_status IN ('eligible','paid')", [req.vendorStore.id])).rows[0].amount);
       if (amount > available) { await client.query('ROLLBACK'); return res.status(409).json({ error: 'Requested payout exceeds your available balance.', available: Math.max(0, available) }); }
       const payout = (await client.query("INSERT INTO public.vendor_payouts(vendor_store_id,amount,idempotency_key,status) VALUES($1,$2,$3,'pending') RETURNING id,amount,status,requested_at", [req.vendorStore.id, amount, crypto.randomUUID()])).rows[0];
       let remaining = amount;
-      const eligibleLines = (await client.query("SELECT id,vendor_net_amount FROM public.vendor_order_lines WHERE vendor_store_id=$1 AND payout_status='eligible' ORDER BY created_at,id FOR UPDATE", [req.vendorStore.id])).rows;
+      const eligibleLines = (await client.query("SELECT l.id,l.vendor_net_amount,COALESCE(a.reserved,0)::bigint AS reserved FROM public.vendor_order_lines l LEFT JOIN (SELECT a.vendor_order_line_id,SUM(a.amount)::bigint AS reserved FROM public.vendor_payout_allocations a JOIN public.vendor_payouts p ON p.id=a.payout_id WHERE p.status IN ('pending','processing','paid') GROUP BY a.vendor_order_line_id) a ON a.vendor_order_line_id=l.id WHERE l.vendor_store_id=$1 AND l.payout_status IN ('eligible','paid') ORDER BY l.created_at,l.id FOR UPDATE OF l", [req.vendorStore.id])).rows;
       for (const line of eligibleLines) {
         if (remaining <= 0) break;
-        const alloc = Math.min(remaining, Number(line.vendor_net_amount));
+        const availableLineAmount = Math.max(0, Number(line.vendor_net_amount) - Number(line.reserved));
+        const alloc = Math.min(remaining, availableLineAmount);
         if (alloc <= 0) continue;
         await client.query('INSERT INTO public.vendor_payout_allocations(payout_id,vendor_order_line_id,amount) VALUES($1,$2,$3)', [payout.id,line.id,alloc]);
-        if (alloc === Number(line.vendor_net_amount)) {
-          await client.query("UPDATE public.vendor_order_lines SET payout_status='processing' WHERE id=$1 AND payout_status='eligible'", [line.id]);
-        } else {
-          await client.query("UPDATE public.vendor_order_lines SET vendor_net_amount=vendor_net_amount-$1 WHERE id=$2 AND payout_status='eligible'", [alloc,line.id]);
-          await client.query("INSERT INTO public.vendor_order_lines(order_id,vendor_store_id,product_id,product_name,quantity,unit_price,line_subtotal,commission_rule_id,commission_amount,vendor_net_amount,payout_status) SELECT order_id,vendor_store_id,product_id,product_name,quantity,unit_price,line_subtotal,commission_rule_id,0,$1,'processing' FROM public.vendor_order_lines WHERE id=$2", [alloc,line.id]);
-        }
         remaining -= alloc;
       }
       if (remaining !== 0) throw new Error('Could not allocate the payout against eligible earnings.');
@@ -286,9 +281,9 @@ export function createMarketplaceRouter({ pool, admin }) {
       if (!payout) { await client.query('ROLLBACK'); return res.status(404).json({error:'Payout not found.'}); }
       if (payout.status === 'paid') { await client.query('ROLLBACK'); return res.status(409).json({error:'Paid payouts cannot be changed.'}); }
       if (status === 'paid') {
-        await client.query("UPDATE public.vendor_order_lines SET payout_status='paid' WHERE id IN (SELECT vendor_order_line_id FROM public.vendor_payout_allocations WHERE payout_id=$1)", [payout.id]);
+        await client.query("UPDATE public.vendor_order_lines l SET payout_status='paid' WHERE l.id IN (SELECT a.vendor_order_line_id FROM public.vendor_payout_allocations a WHERE a.payout_id=$1) AND (SELECT COALESCE(SUM(a2.amount),0) FROM public.vendor_payout_allocations a2 JOIN public.vendor_payouts p2 ON p2.id=a2.payout_id WHERE a2.vendor_order_line_id=l.id AND p2.status IN ('pending','processing','paid')) >= l.vendor_net_amount", [payout.id]);
       } else if (status === 'failed' || status === 'cancelled') {
-        await client.query("UPDATE public.vendor_order_lines SET payout_status='eligible' WHERE id IN (SELECT vendor_order_line_id FROM public.vendor_payout_allocations WHERE payout_id=$1)", [payout.id]);
+        await client.query("UPDATE public.vendor_order_lines l SET payout_status='eligible' WHERE l.id IN (SELECT a.vendor_order_line_id FROM public.vendor_payout_allocations a WHERE a.payout_id=$1) AND l.payout_status='paid' AND (SELECT COALESCE(SUM(a2.amount),0) FROM public.vendor_payout_allocations a2 JOIN public.vendor_payouts p2 ON p2.id=a2.payout_id WHERE a2.vendor_order_line_id=l.id AND p2.status IN ('pending','processing','paid')) < l.vendor_net_amount", [payout.id]);
       }
       const updated=(await client.query("UPDATE public.vendor_payouts SET status=$1,provider_reference=COALESCE($2,provider_reference),failure_reason=$3,processed_at=CASE WHEN $1 IN ('paid','failed','cancelled') THEN NOW() ELSE processed_at END WHERE id=$4 RETURNING id,vendor_store_id,amount,status,provider_reference,failure_reason,requested_at,processed_at", [status, status==='paid'?String(req.body.providerReference).trim():null, status==='failed'?String(req.body?.failureReason||'Payment failed').slice(0,500):null,payout.id])).rows[0];
       await client.query('COMMIT');
