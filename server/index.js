@@ -39,7 +39,7 @@ app.use(cors({
 }));
 
 // Capture raw bytes for Paystack's HMAC signature check.
-app.use(express.json({ limit:'1mb', verify:(req,res,buf)=>{req.rawBody=Buffer.from(buf);} }));
+app.use(express.json({ limit:'8mb', verify:(req,res,buf)=>{req.rawBody=Buffer.from(buf);} }));
 
 const seed = [
  {name:'The Sunday Linen Set',category:'STYLE WOMAN',type:'Co-ord Set',price:4800,images:'https://images.unsplash.com/photo-1594633312681-425c7b97ccd1?auto=format&fit=crop&w=900&q=85',description:'An easy, elevated set for slow mornings and city afternoons.',sizes:['S','M','L','XL'],colors:['Sand','Black'],stock:12},
