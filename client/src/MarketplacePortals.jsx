@@ -234,13 +234,16 @@ export function VendorPortal({ API, money }) {
           <input required type="number" min="0" step="1" placeholder="Stock quantity" value={product.stock} onChange={e=>setProduct({...product,stock:e.target.value})}/>
           <input required placeholder="Sizes, separated by commas" value={product.sizes} onChange={e=>setProduct({...product,sizes:e.target.value})}/>
           <input required placeholder="Colours, separated by commas" value={product.colors} onChange={e=>setProduct({...product,colors:e.target.value})}/>
-          <div className="wide">
-            <label htmlFor="vendor-product-image">Product image file (JPG, PNG or WebP; max 5 MB)</label>
-            <input id="vendor-product-image" type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]||null;setImageFile(file);if(file)setProduct({...product,images:''});}} />
+          <div className="wide vendor-upload-control">
+            <label className="vendor-upload-heading" htmlFor="vendor-product-image">Product photo <span>JPG, PNG or WebP · maximum 5 MB</span></label>
+            <div className="vendor-upload-dropzone">
+              <input className="vendor-product-file-input" id="vendor-product-image" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]||null;setImageFile(file);if(file)setProduct({...product,images:''});}} />
+              <p className="vendor-upload-help">Choose a photo from your computer. The preview appears here before you save.</p>
+            </div>
             {imageFile && <p className="admin-message">Selected file: {imageFile.name} ({(imageFile.size / 1024 / 1024).toFixed(2)} MB)</p>}
             {(imagePreview || product.images.trim()) && <div className="vendor-image-preview" style={{marginTop:12,display:'flex',flexDirection:'column',alignItems:'flex-start',gap:8}}><span>Image preview</span><img src={imagePreview || product.images.trim().split(',')[0].trim()} alt="Product preview" onError={e=>{e.currentTarget.style.display='none';setMessage('The image preview could not load. Check the image URL or choose another file.');}} onLoad={e=>{e.currentTarget.style.display='block';}} style={{display:'block',width:'min(100%, 260px)',maxHeight:260,objectFit:'contain',border:'1px solid #ddd',borderRadius:8,background:'#fff'}} /></div>}
             {uploadStatus && <p className="admin-message" role="status">{uploadStatus}</p>}
-            <label htmlFor="vendor-product-image-url">Or image URL(s), HTTPS only, comma separated</label>
+            <label className="vendor-upload-heading vendor-upload-url-heading" htmlFor="vendor-product-image-url">Or use an image URL <span>HTTPS only; separate multiple URLs with commas</span></label>
             <input id="vendor-product-image-url" placeholder="https://example.com/product.jpg" value={product.images} onChange={e=>{setProduct({...product,images:e.target.value});if(e.target.value.trim())setImageFile(null);}} />
             <p className="admin-message">Required: choose a file from your device OR enter an image URL. Use only one method.</p>
           </div>
