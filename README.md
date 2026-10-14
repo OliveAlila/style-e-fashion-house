@@ -311,7 +311,17 @@ Payout requests reserve a specific amount against ledger lines to prevent the sa
 On backend startup, `server/migrations/002_multi_vendor_foundation.sql` runs after the existing admin migration. It adds marketplace accounts, vendor stores, commission rules, vendor order lines, payout records/allocations, review records, and a nullable vendor owner on products. Take a production database backup before deploying any schema change and test this branch against a staging database first.
 
 
-## Automatic Paystack settlement prerequisites
+## Automatic Paystack split settlement
+
+- Keep `PAYSTACK_SECRET_KEY` and `MARKETPLACE_AUTH_SECRET` in Render only. The auth secret must be at least 32 random characters. Never put either secret in Vercel or a `VITE_*` variable.
+- Set Vercel's `VITE_API_URL` to the deployed Render API base URL ending in `/api`, for example `https://YOUR-API.onrender.com/api`.
+- Set Render's `CLIENT_URL` to the exact public Vercel frontend origin (scheme and hostname, no `/api`). Update the Render value and redeploy the backend if it changes.
+- Every approved seller needs a Paystack subaccount created and verified in the same Paystack environment (Test or Live) as `PAYSTACK_SECRET_KEY`. Save its exact `ACCT_...` code under Marketplace Admin → Vendors. Dynamic splitting no longer requires a shared `SPL_...` split group.
+- At checkout, the API calculates each seller's order lines net of the configured platform commission and passes a dynamic flat split to Paystack. Sellers receive their calculated product share; STYLE retains commission, delivery fees and any STYLE-owned product amounts. Paystack's transaction charges follow the `bearer_type: account` setting.
+- Paystack settlement happens through Paystack's split-payment settlement rules; this is not an instant bank transfer created by the app. Verify the subaccount owners and test successful, failed, refunded and multiple-vendor test transactions before enabling live orders.
+- Keep the existing Paystack webhook configured as `https://YOUR-API.onrender.com/api/paystack/webhook` so successful charges are reconciled server-side. Use the correct secret key mode and matching subaccounts for that environment.
+- Existing Vercel config already rewrites direct frontend paths to `/index.html`; the client now initializes the view from `/vendor`, `/sell`, and `/marketplace-admin` and follows browser navigation events. Set the Vercel project's root directory to `client` and output directory to `dist`.
+
 
 - `PAYSTACK_SECRET_KEY` remains on Render only and must belong to the same Paystack merchant account that owns the vendor subaccounts/split.
 - `MARKETPLACE_AUTH_SECRET` remains on Render only, at least 32 random characters.
