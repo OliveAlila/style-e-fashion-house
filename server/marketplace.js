@@ -187,6 +187,108 @@ export function createMarketplaceRouter({ pool }) {
     res.json(result.rows[0]);
   }));
 
+  router.patch('/admin/vendors/:id/verification',requireSuperAdmin,wrap(async(req,res)=>{
+    const status=String(req.body?.status||'');
+    if(!['pending','approved','rejected'].includes(status))return res.status(400).json({error:'Invalid verification status.'});
+    const c=await pool.connect();
+    try{
+      await c.query('BEGIN');
+      const result=await c.query(\`
+        UPDATE public.vendors SET verification_status=$1,updated_at=NOW()
+        WHERE id=$2 RETURNING id,store_name,slug,verification_status
+      \`,[status,req.params.id]);
+      if(!result.rowCount){await c.query('ROLLBACK');return res.status(404).json({error:'Vendor not found.'})}
+      await c.query(\`
+        INSERT INTO public.marketplace_audit_log(actor_role,action,entity_type,entity_id,details)
+        VALUES('super_admin','vendor_verification_changed','vendor',$1,$2::jsonb)
+      \`,[String(req.params.id),JSON.stringify({status})]);
+      await c.query('COMMIT');
+      res.json(result.rows[0]);
+    }catch(error){await c.query('ROLLBACK');throw error}finally{c.release()}
+  }));
+
+  router.get('/admin/commission-rules',requireSuperAdmin,wrap(async(_req,res)=>{
+    const result=await pool.query('SELECT * FROM public.commission_rules ORDER BY priority,id');
+    res.json(result.rows);
+  }));
+
+  router.post('/admin/commission-rules',requireSuperAdmin,wrap(async(req,res)=>{
+    const b=req.body||{},name=String(b.name||'').trim().slice(0,160),scope=String(b.scope||'platform');
+    const feeType=String(b.fee_type||'percentage'),percentage=b.percentage==null?null:Number(b.percentage);
+    const flatFee=b.flat_fee==null?null:Number(b.flat_fee),priority=Number(b.priority??100);
+    const tiers=Array.isArray(b.tiers)?b.tiers:[];
+    if(!name||!['platform','vendor','category'].includes(scope)||!['percentage','flat','tiered'].includes(feeType)||
+      (percentage!==null&&(!Number.isFinite(percentage)||percentage<0||percentage>100))||
+      (flatFee!==null&&(!Number.isSafeInteger(flatFee)||flatFee<0))||
+      !Number.isSafeInteger(priority)||priority<0||
+      (scope==='vendor'&&!Number.isSafeInteger(Number(b.vendor_id)))||
+      (scope==='category'&&!String(b.category||'').trim())||
+      (feeType==='tiered'&&(!tiers.length||tiers.some(t=>!Number.isFinite(Number(t.up_to))||Number(t.up_to)<=0||!Number.isFinite(Number(t.percentage))||Number(t.percentage)<0||Number(t.percentage)>100)))) {
+      return res.status(400).json({error:'Invalid commission rule. Check name, scope, fee type, rate, and tiers.'});
+    }
+    const result=await pool.query(\`
+      INSERT INTO public.commission_rules(name,scope,vendor_id,category,fee_type,percentage,flat_fee,tiers,priority,active,starts_at,ends_at)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12) RETURNING *
+    \`,[name,scope,scope==='vendor'?Number(b.vendor_id):null,scope==='category'?String(b.category).trim():null,feeType,
+      feeType==='percentage'?percentage:null,feeType==='flat'?flatFee:null,JSON.stringify(tiers),priority,b.active!==false,b.starts_at||null,b.ends_at||null]);
+    res.status(201).json(result.rows[0]);
+  }));
+
+  router.patch('/admin/commission-rules/:id',requireSuperAdmin,wrap(async(req,res)=>{
+    const active=req.body?.active;
+    if(typeof active!=='boolean')return res.status(400).json({error:'Provide active as true or false.'});
+    const result=await pool.query('UPDATE public.commission_rules SET active=$1 WHERE id=$2 RETURNING *',[active,req.params.id]);
+    if(!result.rowCount)return res.status(404).json({error:'Commission rule not found.'});
+    res.json(result.rows[0]);
+  }));
+
+  router.get('/admin/reviews',requireSuperAdmin,wrap(async(_req,res)=>{
+    const result=await pool.query(\`
+      SELECT r.*,v.store_name FROM public.vendor_reviews r JOIN public.vendors v ON v.id=r.vendor_id
+      ORDER BY r.created_at DESC LIMIT 300
+    \`);
+    res.json(result.rows);
+  }));
+
+  router.patch('/admin/reviews/:id/status',requireSuperAdmin,wrap(async(req,res)=>{
+    const status=String(req.body?.status||'');
+    if(!['published','hidden','rejected','pending'].includes(status))return res.status(400).json({error:'Invalid review status.'});
+    const result=await pool.query('UPDATE public.vendor_reviews SET status=$1,updated_at=NOW() WHERE id=$2 RETURNING *',[status,req.params.id]);
+    if(!result.rowCount)return res.status(404).json({error:'Review not found.'});
+    res.json(result.rows[0]);
+  }));
+
+  router.get('/admin/payouts',requireSuperAdmin,wrap(async(_req,res)=>{
+    const result=await pool.query(\`
+      SELECT p.*,v.store_name,v.contact_email FROM public.vendor_payouts p
+      JOIN public.vendors v ON v.id=p.vendor_id ORDER BY p.requested_at DESC LIMIT 300
+    \`);
+    res.json(result.rows);
+  }));
+
+  router.patch('/admin/payouts/:id/status',requireSuperAdmin,wrap(async(req,res)=>{
+    const status=String(req.body?.status||''),allowed=['approved','processing','paid','failed','cancelled'];
+    if(!allowed.includes(status))return res.status(400).json({error:'Invalid payout status.'});
+    const result=await pool.query(\`
+      UPDATE public.vendor_payouts SET status=$1,processed_at=CASE WHEN $1 IN ('paid','failed','cancelled') THEN NOW() ELSE processed_at END
+      WHERE id=$2 AND status IN ('requested','approved','processing') RETURNING *
+    \`,[status,req.params.id]);
+    if(!result.rowCount)return res.status(409).json({error:'Payout not found or is already in a final state.'});
+    res.json(result.rows[0]);
+  }));
+
+  router.get('/admin/summary',requireSuperAdmin,wrap(async(_req,res)=>{
+    const [vendors,products,orders,earnings,payouts,reviews]=await Promise.all([
+      pool.query("SELECT COUNT(*)::int AS n FROM public.vendors"),
+      pool.query("SELECT COUNT(*)::int AS n FROM public.products WHERE vendor_id IS NOT NULL"),
+      pool.query("SELECT COUNT(DISTINCT order_id)::int AS n FROM public.vendor_order_items"),
+      pool.query("SELECT COALESCE(SUM(net_amount),0)::bigint AS n FROM public.vendor_earnings"),
+      pool.query("SELECT COUNT(*)::int AS n FROM public.vendor_payouts WHERE status='requested'"),
+      pool.query("SELECT COUNT(*)::int AS n FROM public.vendor_reviews WHERE status='pending'")
+    ]);
+    res.json({vendors:vendors.rows[0].n,vendorProducts:products.rows[0].n,vendorOrders:orders.rows[0].n,recordedVendorNet:Number(earnings.rows[0].n),pendingPayouts:payouts.rows[0].n,pendingReviews:reviews.rows[0].n});
+  }));
+
   router.post('/vendor/products',requireVendorIdentity,wrap(async(req,res)=>{
     const p=req.body||{};
     const name=String(p.name||'').trim().slice(0,180);
