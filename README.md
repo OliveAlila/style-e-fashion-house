@@ -313,19 +313,12 @@ On backend startup, `server/migrations/002_multi_vendor_foundation.sql` runs aft
 
 ## Automatic Paystack split settlement
 
-- Keep `PAYSTACK_SECRET_KEY` and `MARKETPLACE_AUTH_SECRET` in Render only. The auth secret must be at least 32 random characters. Never put either secret in Vercel or a `VITE_*` variable.
-- Set Vercel's `VITE_API_URL` to the deployed Render API base URL ending in `/api`, for example `https://YOUR-API.onrender.com/api`.
-- Set Render's `CLIENT_URL` to the exact public Vercel frontend origin (scheme and hostname, no `/api`). Update the Render value and redeploy the backend if it changes.
-- Every approved seller needs a Paystack subaccount created and verified in the same Paystack environment (Test or Live) as `PAYSTACK_SECRET_KEY`. Save its exact `ACCT_...` code under Marketplace Admin → Vendors. Dynamic splitting no longer requires a shared `SPL_...` split group.
-- At checkout, the API calculates each seller's order lines net of the configured platform commission and passes a dynamic flat split to Paystack. Sellers receive their calculated product share; STYLE retains commission, delivery fees and any STYLE-owned product amounts. Paystack's transaction charges follow the `bearer_type: account` setting.
-- Paystack settlement happens through Paystack's split-payment settlement rules; this is not an instant bank transfer created by the app. Verify the subaccount owners and test successful, failed, refunded and multiple-vendor test transactions before enabling live orders.
-- Keep the existing Paystack webhook configured as `https://YOUR-API.onrender.com/api/paystack/webhook` so successful charges are reconciled server-side. Use the correct secret key mode and matching subaccounts for that environment.
-- Existing Vercel config already rewrites direct frontend paths to `/index.html`; the client now initializes the view from `/vendor`, `/sell`, and `/marketplace-admin` and follows browser navigation events. Set the Vercel project's root directory to `client` and output directory to `dist`.
-
-
-- `PAYSTACK_SECRET_KEY` remains on Render only and must belong to the same Paystack merchant account that owns the vendor subaccounts/split.
-- `MARKETPLACE_AUTH_SECRET` remains on Render only, at least 32 random characters.
-- Each approved vendor must have a Paystack subaccount created and verified in the Paystack Dashboard/API. Save the exact `ACCT_…` code in Marketplace Admin. Configure the subaccount's platform/vendor percentage and fee bearer in Paystack.
-- For orders containing multiple vendors, create a Paystack split group containing all participating subaccounts and set the split group's share formula. The app must pass that `SPL_…` split code to transaction initialization. One split group only covers the vendors included in that group; arbitrary carts with sellers that aren't in the configured group must not proceed.
-- The current fix branch safely enables a single-seller subaccount transaction. It deliberately rejects multi-seller carts until the matching split group is configured and selected. Do not enable live multi-vendor checkout until staging payment tests verify platform commission, vendor settlements, failed payments, refunds and reconciliation.
-- Keep `VITE_API_URL` in Vercel pointing to the Render API URL with `/api`. Do not put `PAYSTACK_SECRET_KEY`, `ADMIN_TOKEN`, or `MARKETPLACE_AUTH_SECRET` in Vercel.
+- Keep \`PAYSTACK_SECRET_KEY\`, \`MARKETPLACE_AUTH_SECRET\`, and \`ADMIN_TOKEN\` in Render only. \`MARKETPLACE_AUTH_SECRET\` must be at least 32 random characters. Never put these secrets in Vercel or a \`VITE_*\` variable.
+- Set Vercel's \`VITE_API_URL\` to the public Render API base URL ending in \`/api\`, for example \`https://YOUR-API.onrender.com/api\`.
+- Set Render's \`CLIENT_URL\` to the exact public Vercel frontend origin (scheme and hostname, no \`/api\`). Redeploy the backend after changing environment variables. Render also needs the existing \`DATABASE_URL\` and appropriate \`PGSSL\` setting.
+- Every approved seller needs a Paystack subaccount created and verified in the same Paystack environment (Test or Live) as \`PAYSTACK_SECRET_KEY\`. Save the exact \`ACCT_...\` code in Marketplace Admin → Vendors. Dynamic splitting does not require one shared \`SPL_...\` split group.
+- At checkout, the API calculates each seller's net order-line amount after the saved platform commission and passes a dynamic flat split to Paystack. Each seller receives that calculated amount; STYLE retains the platform commission, delivery fee, and any STYLE-owned product amounts. Paystack's transaction fees are borne by the main account in this configuration.
+- Paystack settlement follows Paystack's settlement schedule; this is not an instant bank transfer created by the app. Verify seller/subaccount ownership and test successful, failed, refunded and multi-vendor transactions in Test mode before enabling Live payments.
+- Keep the existing webhook configured to \`https://YOUR-API.onrender.com/api/paystack/webhook\` so successful transactions continue to be verified/reconciled server-side. Use a consistent mode: Test secret with Test subaccounts, and Live secret with Live subaccounts.
+- The Vercel project should use root directory \`client\`, build command \`npm run build\`, output directory \`dist\`, and the existing catch-all rewrite in \`client/vercel.json\`. The client now derives its first view from \`/vendor\`, \`/sell\`, or \`/marketplace-admin\` and handles browser back/forward events.
+- If the frontend builds but \`/vendor\` still shows the old landing page, check that Vercel's production deployment was built from the commit containing these routing changes rather than a previous deployment.
