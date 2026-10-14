@@ -107,6 +107,47 @@ function amountInteger(value, label, min = 0) {
 }
 
 export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, next) => { req.app.locals.marketplacePool = pool; next(); });
+  // Account onboarding uses a single-use token shared privately with the approved applicant.
+  router.post('/vendor/setup-password', wrap(async(req,res)=>{
+    const token=String(req.body?.token||'').trim();
+    const password=typeof req.body?.password==='string'?req.body.password:'';
+    if(token.length<32||password.length<12||password.length>128)
+      return res.status(400).json({error:'A valid setup token and password of 12–128 characters are required.'});
+    const tokenHash=crypto.createHash('sha256').update(token).digest('hex');
+    const result=await pool.query(`
+      UPDATE public.marketplace_users
+      SET password_hash=$1,setup_token_hash=NULL,setup_token_expires_at=NULL,updated_at=NOW()
+      WHERE setup_token_hash=$2 AND setup_token_expires_at>NOW() AND role='vendor' AND status IN ('pending','active')
+      RETURNING id,email,status
+    `,[hashPassword(password),tokenHash]);
+    if(!result.rowCount)return res.status(400).json({error:'Setup token is invalid, expired, or already used.'});
+    res.json({ok:true,message:'Password set. Your store must be approved before you can sign in.'});
+  }));
+
+  router.post('/vendor/login', wrap(async(req,res)=>{
+    const email=String(req.body?.email||'').trim().toLowerCase();
+    const password=typeof req.body?.password==='string'?req.body.password:'';
+    if(!emailPattern.test(email)||password.length<1||password.length>128)
+      return res.status(400).json({error:'Enter your business email and password.'});
+    const result=await pool.query(`
+      SELECT u.id,u.email,u.display_name,u.password_hash,u.status,v.id AS vendor_id,
+             v.store_name,v.slug,v.verification_status
+      FROM public.marketplace_users u
+      JOIN public.vendors v ON v.user_id=u.id
+      WHERE LOWER(u.email)=LOWER($1) AND u.role='vendor' LIMIT 1
+    `,[email]);
+    const user=result.rows[0];
+    if(!user||!user.password_hash||!verifyPassword(password,user.password_hash))
+      return res.status(401).json({error:'Email or password is incorrect.'});
+    if(user.status!=='active'||user.verification_status!=='approved')
+      return res.status(403).json({error:'Your vendor account is awaiting approval or is suspended.'});
+    let token;
+    try{token=signVendorSession(user.id,user.vendor_id)}catch(error){return res.status(503).json({error:error.message})}
+    await pool.query('UPDATE public.marketplace_users SET last_login_at=NOW() WHERE id=$1',[user.id]);
+    res.json({token,expires_in:21600,user:{email:user.email,name:user.display_name},vendor:{id:user.vendor_id,store_name:user.store_name,slug:user.slug}});
+  }));
+
+  router.post('/vendor/logout', (_req,res)=>res.json({ok:true}));
   // Public vendor directory and published reviews only.
   router.get('/vendors', wrap(async (_req, res) => {
     const result = await pool.query(`
