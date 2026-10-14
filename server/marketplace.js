@@ -73,6 +73,31 @@ export function createMarketplaceRouter({ pool, admin }) {
     req.vendorStore = store;
     next();
   });
+  router.post('/vendor/upload-image', auth, allow('vendor'), approvedVendor, wrap(async (req, res) => {
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    const apiKey = process.env.CLOUDINARY_API_KEY;
+    const apiSecret = process.env.CLOUDINARY_API_SECRET;
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.status(503).json({ error: 'Device image uploads are not configured yet. Set the Cloudinary credentials on the backend, or use an HTTPS image URL instead.' });
+    }
+    const image = typeof req.body?.image === 'string' ? req.body.image : '';
+    const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(image);
+    if (!match) return res.status(400).json({ error: 'Upload a JPG, PNG or WebP image file.' });
+    const bytes = Buffer.from(match[2], 'base64');
+    if (!bytes.length || bytes.length > 5 * 1024 * 1024) return res.status(413).json({ error: 'Choose an image smaller than 5 MB.' });
+    const timestamp = Math.floor(Date.now() / 1000);
+    const folder = 'style-products';
+    const signature = crypto.createHash('sha1').update(`folder=${folder}&timestamp=${timestamp}${apiSecret}`).digest('hex');
+    const form = new URLSearchParams({ file: image, api_key: apiKey, timestamp: String(timestamp), folder, signature });
+    const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudName)}/image/upload`, { method: 'POST', body: form });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.secure_url) {
+      console.error('Cloudinary image upload failed:', result.error?.message || response.status);
+      return res.status(502).json({ error: 'Image upload failed. Check the backend Cloudinary configuration and try again.' });
+    }
+    return res.status(201).json({ url: result.secure_url });
+  }));
+
   const money = n => Math.round(Number(n));
   const cleanProduct = b => {
     const name = String(b?.name || '').trim();
