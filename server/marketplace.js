@@ -79,7 +79,7 @@ function verifyPassword(password, encoded) {
 }
 
 async function requireVendorIdentity(req, res, next) {
-  const token = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '');
+  const token = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   const claims = verifyVendorSession(token);
   if (!claims) return res.status(401).json({ error: 'Sign in with your vendor account to continue.' });
   req.app.locals.marketplacePool.query(`
@@ -615,8 +615,8 @@ export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, ne
       await client.query('BEGIN');
       const existing=await client.query('SELECT id,amount,status,provider,requested_at FROM public.vendor_payouts WHERE idempotency_key=$1',[idempotencyKey]);
       if(existing.rowCount){await client.query('COMMIT');return res.json(existing.rows[0])}
-      const available=await client.query("SELECT COALESCE(SUM(net_amount),0)::bigint AS amount FROM public.vendor_earnings WHERE vendor_id=$1 AND status='available' FOR UPDATE",[req.vendor.vendor_id]);
-      const availableAmount=Number(available.rows[0].amount);
+      const available=await client.query("SELECT id,net_amount FROM public.vendor_earnings WHERE vendor_id=$1 AND status='available' ORDER BY id FOR UPDATE",[req.vendor.vendor_id]);
+      const availableAmount=available.rows.reduce((sum,row)=>sum+Number(row.net_amount),0);
       if(amount!==availableAmount){await client.query('ROLLBACK');return res.status(400).json({error:'For the manual payout workflow, request the full available balance.',available_balance:availableAmount})}
       if(availableAmount<=0){await client.query('ROLLBACK');return res.status(400).json({error:'There is no available balance to request.'})}
       const payout=await client.query("INSERT INTO public.vendor_payouts(vendor_id,amount,currency,status,provider,idempotency_key) VALUES($1,$2,'KES','requested','manual',$3) RETURNING id,amount,currency,status,provider,requested_at",[req.vendor.vendor_id,availableAmount,idempotencyKey]);
