@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;\nlet activePool = null;
 
 function getActor(req) {
   const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
@@ -60,7 +60,7 @@ function amountInteger(value, label, min = 0) {
   return n;
 }
 
-export function createMarketplaceRouter({ pool }) {\n  activePool = pool;
+export function createMarketplaceRouter({ pool }) {\n  activePool = pool;\n  activePool = pool;
   // Public vendor directory and published reviews only.
   router.get('/vendors', wrap(async (_req, res) => {
     const result = await pool.query(`
