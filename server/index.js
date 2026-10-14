@@ -105,10 +105,56 @@ app.post('/api/checkout',async(req,res,next)=>{try{
  if(!deliveryFees[deliveryMethod])return res.status(400).json({error:'Invalid delivery method.'});
  const ids=[...new Set(items.map(i=>Number(i.productId)))];if(ids.some(i=>!Number.isInteger(i)||i<1))return res.status(400).json({error:'Invalid product in cart.'});
  const products=(await pool.query('SELECT * FROM products WHERE id=ANY($1::int[]) AND active=TRUE', [ids])).rows;const byId=new Map(products.map(p=>[p.id,p]));
- const lines=items.map(i=>{const p=byId.get(Number(i.productId));const qty=Number(i.quantity);if(!p||!Number.isInteger(qty)||qty<1||qty>10)throw new Error('A product or quantity in your cart is invalid.');if(p.stock<qty)throw new Error(`${p.name} does not have enough stock.`);const size=String(i.size||'');const color=String(i.color||'');if(!p.sizes.includes(size)||!p.colors.includes(color))throw new Error(`Choose a valid size and colour for ${p.name}.`);return {productId:p.id,name:p.name,unitPrice:Number(p.price),quantity:qty,size,color,fulfilment:'stock-check-required',lineTotal:Number(p.price)*qty};});
+ const lines=items.map(i=>{const p=byId.get(Number(i.productId));const qty=Number(i.quantity);if(!p||!Number.isInteger(qty)||qty<1||qty>10)throw new Error('A product or quantity in your cart is invalid.');if(p.stock<qty)throw new Error(`${p.name} does not have enough stock.`);const size=String(i.size||'');const color=String(i.color||'');if(!p.sizes.includes(size)||!p.colors.includes(color))throw new Error(`Choose a valid size and colour for ${p.name}.`);return {productId:p.id,name:p.name,unitPrice:Number(p.price),quantity:qty,size,color,fulfilment:'stock-check-required',lineTotal:Number(p.price)*qty,vendorId:p.vendor_id===null?null:Number(p.vendor_id)};});
  const subtotal=lines.reduce((s,i)=>s+i.lineTotal,0),fee=deliveryFees[deliveryMethod],total=subtotal+fee;
  const reference='STYLE-'+crypto.randomBytes(10).toString('hex').toUpperCase();
  const order=(await pool.query(`INSERT INTO orders(reference,customer_name,email,phone,address,town,county,delivery_method,items,subtotal,delivery_fee,total) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id,reference,total,payment_status`,[reference,String(customer.name).slice(0,120),customer.email, String(customer.phone).slice(0,40),String(customer.address).slice(0,250),String(customer.town).slice(0,100),String(customer.county).slice(0,100),deliveryMethod,JSON.stringify(lines),subtotal,fee,total])).rows[0];
+ // Create vendor allocation snapshots inside the same transaction as the order.
+ const vendorLines=lines.filter(line=>line.vendorId!==null);
+ if(vendorLines.length){
+   const client=await pool.connect();
+   try{
+     await client.query('BEGIN');
+     const orderRow=await client.query('SELECT id FROM public.orders WHERE reference=$1 FOR UPDATE',[reference]);
+     const groups=new Map();
+     for(const line of vendorLines){
+       const row=(await client.query('SELECT vendor_id,name,price FROM public.products WHERE id=$1 AND active=TRUE',[line.productId])).rows[0];
+       if(!row||!row.vendor_id)throw new Error('A marketplace product is no longer assigned to an approved vendor.');
+       const gross=Number(line.lineTotal);
+       const rules=(await client.query(`
+         SELECT * FROM public.commission_rules WHERE active=TRUE
+           AND (starts_at IS NULL OR starts_at<=NOW()) AND (ends_at IS NULL OR ends_at>NOW())
+           AND (scope='platform' OR (scope='vendor' AND vendor_id=$1) OR (scope='category' AND category=$2))
+         ORDER BY priority ASC,id DESC
+       `,[row.vendor_id, (await client.query('SELECT category FROM public.products WHERE id=$1',[line.productId])).rows[0].category])).rows;
+       const rule=rules[0];
+       let commission=0;
+       if(rule){
+         if(rule.fee_type==='percentage')commission=Math.round(gross*Number(rule.percentage||0)/100);
+         else if(rule.fee_type==='flat')commission=Math.min(gross,Number(rule.flat_fee||0));
+         else if(rule.fee_type==='tiered'){
+           const applicable=(rule.tiers||[]).filter(t=>gross<=Number(t.up_to)).sort((a,b)=>Number(a.up_to)-Number(b.up_to))[0]||(rule.tiers||[]).slice().sort((a,b)=>Number(b.up_to)-Number(a.up_to))[0];
+           commission=applicable?Math.round(gross*Number(applicable.percentage||0)/100):0;
+         }
+       }
+       const net=gross-commission;
+       await client.query(`
+         INSERT INTO public.vendor_order_items(order_id,vendor_id,product_id,product_name,quantity,unit_price,line_total,commission_amount,vendor_net_amount,fulfilment_status)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_payment')
+         ON CONFLICT(order_id,product_id) DO NOTHING
+       `,[orderRow.rows[0].id,row.vendor_id,line.productId,line.name,line.quantity,line.unitPrice,gross,commission,net]);
+       const sum=groups.get(Number(row.vendor_id))||{gross:0,commission:0,net:0};
+       sum.gross+=gross;sum.commission+=commission;sum.net+=net;groups.set(Number(row.vendor_id),sum);
+     }
+     for(const [vendorId,sum] of groups){
+       await client.query(`
+         INSERT INTO public.vendor_earnings(vendor_id,order_id,gross_amount,commission_amount,net_amount,currency,status)
+         VALUES($1,$2,$3,$4,$5,'KES','pending') ON CONFLICT(vendor_id,order_id) DO NOTHING
+       `,[vendorId,orderRow.rows[0].id,sum.gross,sum.commission,sum.net]);
+     }
+     await client.query('COMMIT');
+   }catch(error){await client.query('ROLLBACK');throw error}finally{client.release()}
+ }
  if(!process.env.PAYSTACK_SECRET_KEY){return res.status(201).json({order,subtotal,deliveryFee:fee,total,checkoutUrl:null,message:'Order created in demo mode. Configure PAYSTACK_SECRET_KEY to enable payments.'});}
  const response=await fetch('https://api.paystack.co/transaction/initialize',{method:'POST',headers:{Authorization:`Bearer ${process.env.PAYSTACK_SECRET_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({email:customer.email,amount:total*100,currency:'KES',reference,callback_url:`${process.env.CLIENT_URL}/payment-return`,metadata:{order_reference:reference,customer_name:customer.name}})});
  const payload=await response.json();if(!response.ok||!payload.status)throw new Error(payload.message||'Could not initialize Paystack checkout.');res.status(201).json({order,subtotal,deliveryFee:fee,total,checkoutUrl:payload.data.authorization_url});
