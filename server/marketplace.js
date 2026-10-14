@@ -159,7 +159,7 @@ export function createMarketplaceRouter({ pool, admin }) {
     const storeId = req.vendorStore.id;
     const [products, lines, reviews, payouts] = await Promise.all([
       pool.query('SELECT COUNT(*)::int AS count FROM public.products WHERE vendor_store_id=$1 AND active=TRUE AND archived_at IS NULL', [storeId]),
-      pool.query("SELECT COUNT(DISTINCT order_id)::int AS orders,COALESCE(SUM(line_subtotal),0)::bigint AS gross,COALESCE(SUM(commission_amount),0)::bigint AS commission,COALESCE(SUM(vendor_net_amount),0)::bigint AS earnings FROM public.vendor_order_lines WHERE vendor_store_id=$1", [storeId]),
+      pool.query("SELECT COUNT(DISTINCT l.order_id) FILTER (WHERE o.payment_status='paid')::int AS orders,COALESCE(SUM(l.line_subtotal) FILTER (WHERE o.payment_status='paid'),0)::bigint AS gross,COALESCE(SUM(l.commission_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS commission,COALESCE(SUM(l.vendor_net_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS earnings FROM public.vendor_order_lines l JOIN public.orders o ON o.id=l.order_id WHERE l.vendor_store_id=$1", [storeId]),
       pool.query("SELECT COUNT(*)::int AS count,COALESCE(ROUND(AVG(rating)::numeric,1),0) AS rating FROM public.vendor_reviews WHERE vendor_store_id=$1 AND status='published'", [storeId]),
       pool.query("SELECT COALESCE(SUM(amount) FILTER (WHERE status IN ('pending','processing')),0)::bigint AS pending,COALESCE(SUM(amount) FILTER (WHERE status='paid'),0)::bigint AS paid FROM public.vendor_payouts WHERE vendor_store_id=$1", [storeId])
     ]);
@@ -256,7 +256,7 @@ export function createMarketplaceRouter({ pool, admin }) {
   }));
 
   router.get('/admin/vendors', auth, allow('super_admin'), wrap(async (_req, res) => {
-    const vendors = (await pool.query("SELECT s.*,u.full_name,u.email,COALESCE(SUM(l.line_subtotal),0)::bigint AS gross_sales,COALESCE(SUM(l.commission_amount),0)::bigint AS platform_commission,COALESCE(SUM(l.vendor_net_amount),0)::bigint AS vendor_earnings FROM public.vendor_stores s JOIN public.marketplace_users u ON u.id=s.user_id LEFT JOIN public.vendor_order_lines l ON l.vendor_store_id=s.id GROUP BY s.id,u.id ORDER BY s.created_at DESC")).rows;
+    const vendors = (await pool.query("SELECT s.*,u.full_name,u.email,COALESCE(SUM(l.line_subtotal) FILTER (WHERE o.payment_status='paid'),0)::bigint AS gross_sales,COALESCE(SUM(l.commission_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS platform_commission,COALESCE(SUM(l.vendor_net_amount) FILTER (WHERE o.payment_status='paid'),0)::bigint AS vendor_earnings FROM public.vendor_stores s JOIN public.marketplace_users u ON u.id=s.user_id LEFT JOIN public.vendor_order_lines l ON l.vendor_store_id=s.id LEFT JOIN public.orders o ON o.id=l.order_id GROUP BY s.id,u.id ORDER BY s.created_at DESC")).rows;
     res.json(vendors.map(v=>({...v,gross_sales:Number(v.gross_sales),platform_commission:Number(v.platform_commission),vendor_earnings:Number(v.vendor_earnings)})));
   }));
   router.patch('/admin/vendors/:id/status', auth, allow('super_admin'), wrap(async (req, res) => {
