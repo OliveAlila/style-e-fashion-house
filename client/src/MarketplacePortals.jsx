@@ -177,7 +177,7 @@ export function VendorPortal({ API, money }) {
 }
 
 export function MarketplaceAdmin({ API, money }) {
-  const [mode,setMode]=useState('login'),[adminToken,setAdminToken]=useState(''),[fullName,setFullName]=useState(''),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[token,setToken]=useState(''),[user,setUser]=useState(null),[tab,setTab]=useState('Vendors'),[data,setData]=useState([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  const [mode,setMode]=useState('login'),[adminToken,setAdminToken]=useState(''),[fullName,setFullName]=useState(''),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[token,setToken]=useState(''),[user,setUser]=useState(null),[tab,setTab]=useState('Vendors'),[data,setData]=useState([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[subaccount,setSubaccount]=useState({vendorId:'',subaccountCode:''});
   const [rule,setRule]=useState({name:'Default percentage',calculationType:'percentage',percentage:'10',flatFee:'0',vendorStoreId:'',priority:'100',tiers:'[{"upTo":5000,"percentage":10},{"upTo":20000,"percentage":8}]'});
   const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
   async function api(path,options={}){const r=await fetch(API+'/marketplace'+path,{...options,headers:{...headers,...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Marketplace admin request failed.');return d}
@@ -196,7 +196,14 @@ export function MarketplaceAdmin({ API, money }) {
     </> : <>
       <div className="admin-toolbar"><div className="admin-tabs">{['Vendors','Commissions','Payouts'].map(x=><button key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</button>)}</div><button className="admin-signout" onClick={()=>{setUser(null);setToken('');setData([]);setMessage('Signed out.')}}>Sign out</button></div>
       {message && <p className="admin-message" role="status">{message}</p>}{busy && <p>Loading…</p>}
-      {tab==='Vendors' && <div className="admin-table-wrap"><table><thead><tr><th>Store</th><th>Owner</th><th>Status</th><th>Gross sales</th><th>Commission</th><th>Vendor net</th><th>Review</th></tr></thead><tbody>{data.map(v=><tr key={v.id}><td>{v.store_name}<small>{v.slug}</small></td><td>{v.full_name}<small>{v.email}</small></td><td>{v.status}</td><td>{money(v.gross_sales)}</td><td>{money(v.platform_commission)}</td><td>{money(v.vendor_earnings)}</td><td><button onClick={()=>vendorStatus(v.id,'approved')}>Approve</button> <button onClick={()=>vendorStatus(v.id,'rejected')}>Reject</button> <button onClick={()=>vendorStatus(v.id,'suspended')}>Suspend</button></td></tr>)}</tbody></table></div>}
+      {tab==='Vendors' && <section>
+        <div className="admin-table-wrap"><table><thead><tr><th>Store</th><th>Owner</th><th>Status</th><th>Gross sales</th><th>Commission</th><th>Vendor net</th><th>Review</th></tr></thead><tbody>{data.map(v=><tr key={v.id}><td>{v.store_name}<small>{v.slug}</small></td><td>{v.full_name}<small>{v.email}</small></td><td>{v.status}{v.paystack_subaccount_code?<small>{v.paystack_subaccount_code}</small>:null}</td><td>{money(v.gross_sales)}</td><td>{money(v.platform_commission)}</td><td>{money(v.vendor_earnings)}</td><td><button onClick={()=>vendorStatus(v.id,'approved')}>Approve</button> <button onClick={()=>vendorStatus(v.id,'rejected')}>Reject</button> <button onClick={()=>vendorStatus(v.id,'suspended')}>Suspend</button></td></tr>)}</tbody></table></div>
+        <form className="admin-form" onSubmit={async e=>{e.preventDefault();try{await api('/admin/vendors/'+subaccount.vendorId+'/paystack-subaccount',{method:'PATCH',body:JSON.stringify({subaccountCode:subaccount.subaccountCode})});setMessage('Verified Paystack subaccount code saved.');setSubaccount({vendorId:'',subaccountCode:''});await load()}catch(error){setMessage(error.message)}}}>
+          <h2>Connect seller Paystack subaccount</h2><p>First create and verify the seller subaccount in Paystack. This stores its ACCT_ code; it does not create the recipient or move money.</p>
+          <div className="admin-fields"><select required value={subaccount.vendorId} onChange={e=>setSubaccount({...subaccount,vendorId:e.target.value})}><option value="">Select vendor</option>{data.map(v=><option key={v.id} value={v.id}>{v.store_name} — {v.email}</option>)}</select><input required placeholder="Paystack ACCT_ subaccount code" value={subaccount.subaccountCode} onChange={e=>setSubaccount({...subaccount,subaccountCode:e.target.value})}/></div>
+          <button className="btn btn-dark">Save subaccount</button>
+        </form>
+      </section>}
       {tab==='Commissions' && <section>
         <form className="admin-form" onSubmit={saveRule}>
           <h2>New commission rule</h2>
