@@ -31,9 +31,23 @@ function requireVendorIdentity(req, res, next) {
   if (!configured.length || supplied.length !== configured.length || !crypto.timingSafeEqual(supplied, configured)) {
     return res.status(401).json({ error: 'Vendor authorization required.' });
   }
-  return res.status(501).json({
-    error: 'Individual vendor sessions are not configured yet. Vendor data and write actions remain disabled until account-level authentication is installed.'
-  });
+  // A transitional single-vendor credential may only be enabled once exactly one
+  // approved, active vendor exists. Multi-vendor production requires per-user sessions.
+  poolForVendorLookup().then(vendor => {
+    if (!vendor) return res.status(403).json({error:'No approved vendor is configured.'});
+    req.vendor = vendor;
+    next();
+  }).catch(next);
+}
+async function poolForVendorLookup() {
+  const db = activePool;
+  const r = await db.query(`
+    SELECT v.id,v.user_id,v.store_name,v.slug
+    FROM public.vendors v JOIN public.marketplace_users u ON u.id=v.user_id
+    WHERE u.status='active' AND v.verification_status='approved'
+    ORDER BY v.id
+  `);
+  return r.rowCount === 1 ? r.rows[0] : null;
 }
 
 function amountInteger(value, label, min = 0) {
@@ -46,7 +60,7 @@ function amountInteger(value, label, min = 0) {
   return n;
 }
 
-export function createMarketplaceRouter({ pool }) {
+export function createMarketplaceRouter({ pool }) {\n  activePool = pool;
   // Public vendor directory and published reviews only.
   router.get('/vendors', wrap(async (_req, res) => {
     const result = await pool.query(`
