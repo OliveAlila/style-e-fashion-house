@@ -60,6 +60,9 @@ async function init(){
  const adminMigration = await readFile(new URL('./migrations/001_admin_features.sql', import.meta.url), 'utf8');
  await pool.query(adminMigration);
  console.log('Admin database migration applied.');
+ const marketplaceMigration = await readFile(new URL('./migrations/002_multi_vendor.sql', import.meta.url), 'utf8');
+ await pool.query(marketplaceMigration);
+ console.log('Marketplace database migration applied.');
  const count=(await pool.query('SELECT COUNT(*)::int AS n FROM products')).rows[0].n;
  if(!count) for(const p of seed) await pool.query('INSERT INTO products(name,category,type,price,images,description,sizes,colors,stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[p.name,p.category,p.type,p.price,p.images,p.description,JSON.stringify(p.sizes),JSON.stringify(p.colors),p.stock]);
 }
