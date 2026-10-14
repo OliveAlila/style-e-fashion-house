@@ -200,6 +200,7 @@ export function createMarketplaceRouter({ pool }) {\n  activePool = pool;\n  // 
         VALUES('super_admin','vendor_verification_changed','vendor',$1,$2::jsonb)
       \`,[String(req.params.id),JSON.stringify({status})]);
       await c.query('COMMIT');
+      delete result.rows[0].user_id;
       res.json(result.rows[0]);
     }catch(error){await c.query('ROLLBACK');throw error}finally{c.release()}
   }));
