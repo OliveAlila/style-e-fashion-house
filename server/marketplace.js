@@ -344,27 +344,117 @@ export function createMarketplaceRouter({ pool }) {
     res.json({vendors:vendors.rows[0].n,vendorProducts:products.rows[0].n,vendorOrders:orders.rows[0].n,recordedVendorNet:Number(earnings.rows[0].n),pendingPayouts:payouts.rows[0].n,pendingReviews:reviews.rows[0].n});
   }));
 
-  router.post('/vendor/products',requireVendorIdentity,wrap(async(req,res)=>{
-    const p=req.body||{};
-    const name=String(p.name||'').trim().slice(0,180);
-    const category=String(p.category||'').trim();
-    const price=amountInteger(p.price,'Price');
-    const stock=amountInteger(p.stock??0,'Stock');
-    const gallery=Array.isArray(p.image_gallery)?p.image_gallery:[];
-    if(!name||!category||!gallery.length||gallery.length>12||gallery.some(x=>typeof x!=='string'||!/^https?:\/\//i.test(x)))
-      return res.status(400).json({error:'Product name, category, and 1–12 valid image URLs are required.'});
-    return res.status(501).json({error:'Vendor sign-in is not configured yet; no product was created.'});
+  router.get('/vendor/summary', requireVendorIdentity, wrap(async(req,res)=>{
+    const vendorId=req.vendor.id;
+    const [products,orders,sales,fees,net,available]=await Promise.all([
+      pool.query('SELECT COUNT(*)::int AS n FROM public.products WHERE vendor_id=$1 AND archived_at IS NULL',[vendorId]),
+      pool.query('SELECT COUNT(DISTINCT order_id)::int AS n FROM public.vendor_order_items WHERE vendor_id=$1',[vendorId]),
+      pool.query('SELECT COALESCE(SUM(gross_amount),0)::bigint AS n FROM public.vendor_earnings WHERE vendor_id=$1',[vendorId]),
+      pool.query('SELECT COALESCE(SUM(commission_amount),0)::bigint AS n FROM public.vendor_earnings WHERE vendor_id=$1',[vendorId]),
+      pool.query("SELECT COALESCE(SUM(net_amount),0)::bigint AS n FROM public.vendor_earnings WHERE vendor_id=$1 AND status IN ('available','payout_pending','paid')",[vendorId]),
+      pool.query("SELECT COALESCE(SUM(net_amount),0)::bigint AS n FROM public.vendor_earnings WHERE vendor_id=$1 AND status='available'",[vendorId])
+    ]);
+    res.json({products:products.rows[0].n,orders:orders.rows[0].n,gross_sales:Number(sales.rows[0].n),commission:Number(fees.rows[0].n),net_earnings:Number(net.rows[0].n),available_balance:Number(available.rows[0].n)});
   }));
 
-  router.get('/vendor/summary',requireVendorIdentity,wrap(async(_req,res)=>res.json({products:0,orders:0,gross_sales:0,commission:0,net_earnings:0,available_balance:0})));
-  router.get('/vendor/products',requireVendorIdentity,wrap(async(_req,res)=>res.json([])));
-  router.get('/vendor/orders',requireVendorIdentity,wrap(async(_req,res)=>res.json([])));
-  router.get('/vendor/earnings',requireVendorIdentity,wrap(async(_req,res)=>res.json([])));
-  router.get('/vendor/payouts',requireVendorIdentity,wrap(async(_req,res)=>res.json([])));
+  router.get('/vendor/products', requireVendorIdentity, wrap(async(req,res)=>{
+    const rows=await pool.query('SELECT id,name,category,type,price,images,image_gallery,description,sizes,colors,stock,active,discount_percent,variants,created_at FROM public.products WHERE vendor_id=$1 ORDER BY created_at DESC',[req.vendor.id]);
+    res.json(rows.rows.map(row=>({...row,price:Number(row.price),stock:Number(row.stock),discount_percent:Number(row.discount_percent||0)})));
+  }));
 
-  router.post('/vendor/payouts',requireVendorIdentity,wrap(async(req,res)=>{
-    const amount=amountInteger(req.body?.amount,'Payout amount',1);
-    return res.status(501).json({error:'Verified vendor accounts and a configured payout provider are required before a payout can be requested.',requestedAmount:amount});
+  router.post('/vendor/products', requireVendorIdentity, wrap(async(req,res)=>{
+    const b=req.body||{},name=String(b.name||'').trim().slice(0,180),category=String(b.category||'').trim();
+    const type=String(b.type||'Clothing').trim().slice(0,80),description=String(b.description||'').trim().slice(0,5000);
+    const price=amountInteger(b.price,'Price'),stock=amountInteger(b.stock??0,'Stock');
+    const sizes=Array.isArray(b.sizes)?b.sizes.map(x=>String(x).trim()).filter(Boolean):[];
+    const colors=Array.isArray(b.colors)?b.colors.map(x=>String(x).trim()).filter(Boolean):[];
+    const gallery=Array.isArray(b.image_gallery)?b.image_gallery:[];
+    if(!name||!category||!gallery.length||gallery.length>12||gallery.some(x=>typeof x!=='string'||!/^https?:\/\//i.test(x)))
+      return res.status(400).json({error:'Product name, category, and 1–12 valid HTTP(S) image URLs are required.'});
+    if(!sizes.length||!colors.length)return res.status(400).json({error:'At least one size and one colour are required.'});
+    const allowedCategories=['STYLE WOMAN','STYLE MAMA','STYLE KIDS','SETS & GIFTS'];
+    if(!allowedCategories.includes(category))return res.status(400).json({error:'Choose a valid STYLE product category.'});
+    const result=await pool.query(`
+      INSERT INTO public.products(name,category,type,price,images,description,sizes,colors,stock,active,vendor_id,image_gallery)
+      SELECT $1,$2,$3,$4,$5,$6,$7::jsonb,$8::jsonb,$9,TRUE,v.id,$10::jsonb
+      FROM public.vendors v JOIN public.marketplace_users u ON u.id=v.user_id
+      WHERE v.id=$11 AND u.status='active' AND v.verification_status='approved'
+      RETURNING id,name,category,type,price,images,description,sizes,colors,stock,active,vendor_id,image_gallery
+    `,[name,category,type,price,gallery[0],description,JSON.stringify(sizes),JSON.stringify(colors),stock,JSON.stringify(gallery),req.vendor.id]);
+    if(!result.rowCount)return res.status(403).json({error:'Your vendor store must be approved before listing products.'});
+    res.status(201).json({...result.rows[0],price:Number(result.rows[0].price),stock:Number(result.rows[0].stock)});
+  }));
+
+  router.patch('/vendor/products/:id', requireVendorIdentity, wrap(async(req,res)=>{
+    const b=req.body||{};
+    const current=await pool.query('SELECT * FROM public.products WHERE id=$1 AND vendor_id=$2',[req.params.id,req.vendor.id]);
+    if(!current.rowCount)return res.status(404).json({error:'Product not found in your store.'});
+    const old=current.rows[0];
+    const name=String(b.name??old.name).trim().slice(0,180),category=String(b.category??old.category).trim();
+    const price=amountInteger(b.price??old.price,'Price'),stock=amountInteger(b.stock??old.stock,'Stock');
+    const gallery=b.image_gallery??old.image_gallery??[];
+    if(!name||!['STYLE WOMAN','STYLE MAMA','STYLE KIDS','SETS & GIFTS'].includes(category)||!Array.isArray(gallery)||gallery.length>12||gallery.some(x=>typeof x!=='string'||!/^https?:\/\//i.test(x)))
+      return res.status(400).json({error:'Invalid product details or image URLs.'});
+    const sizes=b.sizes??old.sizes,colors=b.colors??old.colors,variants=b.variants??old.variants??[];
+    const active=typeof b.active==='boolean'?b.active:old.active;
+    const description=String(b.description??old.description??'').slice(0,5000);
+    const discount=Number(b.discount_percent??old.discount_percent??0);
+    if(!Number.isFinite(discount)||discount<0||discount>100)return res.status(400).json({error:'Discount must be between 0 and 100.'});
+    const result=await pool.query(`
+      UPDATE public.products SET name=$1,category=$2,type=$3,price=$4,images=$5,description=$6,
+        sizes=$7::jsonb,colors=$8::jsonb,stock=$9,active=$10,discount_percent=$11,
+        variants=$12::jsonb,image_gallery=$13::jsonb
+      WHERE id=$14 AND vendor_id=$15 RETURNING *
+    `,[name,category,String(b.type??old.type),price,gallery[0]||'',description,JSON.stringify(sizes),JSON.stringify(colors),stock,active,discount,JSON.stringify(variants),JSON.stringify(gallery),req.params.id,req.vendor.id]);
+    res.json({...result.rows[0],price:Number(result.rows[0].price),stock:Number(result.rows[0].stock)});
+  }));
+
+  router.get('/vendor/orders', requireVendorIdentity, wrap(async(req,res)=>{
+    const rows=await pool.query(`
+      SELECT vi.id, o.reference AS order_reference, o.payment_status, vi.product_id,vi.product_name,
+             vi.quantity,vi.unit_price,vi.line_total,vi.commission_amount,vi.vendor_net_amount,
+             vi.fulfilment_status,o.created_at
+      FROM public.vendor_order_items vi JOIN public.orders o ON o.id=vi.order_id
+      WHERE vi.vendor_id=$1 ORDER BY o.created_at DESC LIMIT 500
+    `,[req.vendor.id]);
+    res.json(rows.rows.map(row=>({...row,unit_price:Number(row.unit_price),line_total:Number(row.line_total),commission_amount:Number(row.commission_amount),vendor_net_amount:Number(row.vendor_net_amount)})));
+  }));
+
+  router.patch('/vendor/orders/:id', requireVendorIdentity, wrap(async(req,res)=>{
+    const status=String(req.body?.fulfilment_status||'');
+    if(!['processing','dispatched','delivered','cancelled'].includes(status))return res.status(400).json({error:'Invalid fulfilment status.'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const found=await client.query(`
+        SELECT vi.*,o.payment_status FROM public.vendor_order_items vi JOIN public.orders o ON o.id=vi.order_id
+        WHERE vi.id=$1 AND vi.vendor_id=$2 FOR UPDATE
+      `,[req.params.id,req.vendor.id]);
+      if(!found.rowCount){await client.query('ROLLBACK');return res.status(404).json({error:'Order line not found in your store.'})}
+      if(found.rows[0].payment_status!=='paid'&&['processing','dispatched','delivered'].includes(status)){await client.query('ROLLBACK');return res.status(409).json({error:'Unpaid orders cannot be fulfilled.'})}
+      const transitions={awaiting_payment:['awaiting_payment','cancelled'],processing:['processing','dispatched','cancelled'],dispatched:['dispatched','delivered'],delivered:['delivered'],cancelled:['cancelled'],refunded:['refunded']};
+      if(!(transitions[found.rows[0].fulfilment_status]||[]).includes(status)){await client.query('ROLLBACK');return res.status(409).json({error:'Invalid fulfilment status transition.'})}
+      const updated=await client.query('UPDATE public.vendor_order_items SET fulfilment_status=$1 WHERE id=$2 RETURNING *',[status,req.params.id]);
+      await client.query('COMMIT');res.json(updated.rows[0]);
+    }catch(error){await client.query('ROLLBACK');throw error}finally{client.release()}
+  }));
+
+  router.get('/vendor/earnings', requireVendorIdentity, wrap(async(req,res)=>{
+    const rows=await pool.query(`
+      SELECT e.*,o.reference AS order_reference FROM public.vendor_earnings e
+      JOIN public.orders o ON o.id=e.order_id WHERE e.vendor_id=$1 ORDER BY e.created_at DESC LIMIT 500
+    `,[req.vendor.id]);
+    res.json(rows.rows.map(row=>({...row,gross_amount:Number(row.gross_amount),commission_amount:Number(row.commission_amount),net_amount:Number(row.net_amount)})));
+  }));
+
+  router.get('/vendor/payouts', requireVendorIdentity, wrap(async(req,res)=>{
+    const rows=await pool.query('SELECT id,amount,currency,status,provider,provider_reference,requested_at,processed_at FROM public.vendor_payouts WHERE vendor_id=$1 ORDER BY requested_at DESC LIMIT 200',[req.vendor.id]);
+    res.json(rows.rows.map(row=>({...row,amount:Number(row.amount)})));
+  }));
+
+  router.post('/vendor/payouts', requireVendorIdentity, wrap(async(req,res)=>{
+    amountInteger(req.body?.amount,'Payout amount',1);
+    return res.status(503).json({error:'Payout provider is not configured. No funds were transferred.'});
   }));
 
   return router;
