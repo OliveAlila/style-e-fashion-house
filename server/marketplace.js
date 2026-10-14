@@ -431,22 +431,37 @@ export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, ne
         const a=app.rows[0];
         const base=a.store_name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80);
         const slug=base+'-'+a.id;
-        const u=await c.query(`
-          INSERT INTO public.marketplace_users(email,display_name,role,status)
-          VALUES($1,$2,'vendor','pending')
-          ON CONFLICT(email) DO UPDATE SET display_name=EXCLUDED.display_name
-          RETURNING id
-        `,[a.email,a.name]);
+        const existing=await c.query('SELECT id,role FROM public.marketplace_users WHERE LOWER(email)=LOWER($1) FOR UPDATE',[a.email]);
+        if(existing.rowCount&&existing.rows[0].role!=='vendor') {
+          await c.query('ROLLBACK');
+          return res.status(409).json({error:'That email already belongs to another marketplace role.'});
+        }
+        const setupToken=crypto.randomBytes(32).toString('base64url');
+        const setupTokenHash=crypto.createHash('sha256').update(setupToken).digest('hex');
+        const u=existing.rowCount
+          ? await c.query(`
+              UPDATE public.marketplace_users
+              SET display_name=$1,status='pending',setup_token_hash=$2,
+                  setup_token_expires_at=NOW()+INTERVAL '48 hours',updated_at=NOW()
+              WHERE id=$3 RETURNING id,email,role,status
+            `,[a.name,setupTokenHash,existing.rows[0].id])
+          : await c.query(`
+              INSERT INTO public.marketplace_users(email,display_name,role,status,setup_token_hash,setup_token_expires_at)
+              VALUES($1,$2,'vendor','pending',$3,NOW()+INTERVAL '48 hours')
+              RETURNING id,email,role,status
+            `,[a.email,a.name,setupTokenHash]);
         const vendor=await c.query(`
           INSERT INTO public.vendors(user_id,store_name,slug,description,contact_email,contact_phone,verification_status)
           VALUES($1,$2,$3,$4,$5,$6,'pending')
-          ON CONFLICT(user_id) DO UPDATE SET store_name=EXCLUDED.store_name
+          ON CONFLICT(user_id) DO UPDATE SET store_name=EXCLUDED.store_name,
+            slug=EXCLUDED.slug,description=EXCLUDED.description,contact_email=EXCLUDED.contact_email,
+            contact_phone=EXCLUDED.contact_phone,verification_status='pending',updated_at=NOW()
           RETURNING id,store_name,slug,verification_status
         `,[u.rows[0].id,a.store_name,slug,a.description,a.email,a.phone]);
         await c.query("INSERT INTO public.marketplace_audit_log(actor_role,action,entity_type,entity_id,details) VALUES('super_admin','application_approved','vendor',$1,$2::jsonb)",[String(vendor.rows[0].id),JSON.stringify({application_id:a.id,email:a.email})]);
       }
       await c.query('COMMIT');
-      res.json(app.rows[0]);
+      res.json(status==='approved'?{...app.rows[0],onboarding_token:setupToken,onboarding_link:(process.env.CLIENT_URL||'').replace(/\\/$/,'')+'/vendor/setup?token='+encodeURIComponent(setupToken),token_expires_in_hours:48}:app.rows[0]);
     }catch(error){await c.query('ROLLBACK');if(error.code==='23505')return res.status(409).json({error:'A vendor or store with this email/slug already exists.'});throw error}finally{c.release()}
   }));
 
