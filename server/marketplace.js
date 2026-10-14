@@ -597,8 +597,23 @@ export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, ne
   }));
 
   router.post('/vendor/payouts', requireVendorIdentity, wrap(async(req,res)=>{
-    amountInteger(req.body?.amount,'Payout amount',1);
-    return res.status(503).json({error:'Payout provider is not configured. No funds were transferred.'});
+    const amount=amountInteger(req.body?.amount,'Payout amount',1);
+    const idempotencyKey=String(req.body?.idempotency_key||'').trim();
+    if(idempotencyKey.length<12||idempotencyKey.length>120)return res.status(400).json({error:'A unique payout request key is required.'});
+    const client=await pool.connect();
+    try{
+      await client.query('BEGIN');
+      const existing=await client.query('SELECT id,amount,status,provider,requested_at FROM public.vendor_payouts WHERE idempotency_key=$1',[idempotencyKey]);
+      if(existing.rowCount){await client.query('COMMIT');return res.json(existing.rows[0])}
+      const available=await client.query("SELECT COALESCE(SUM(net_amount),0)::bigint AS amount FROM public.vendor_earnings WHERE vendor_id=$1 AND status='available' FOR UPDATE",[req.vendor.vendor_id]);
+      const availableAmount=Number(available.rows[0].amount);
+      if(amount!==availableAmount){await client.query('ROLLBACK');return res.status(400).json({error:'For the manual payout workflow, request the full available balance.',available_balance:availableAmount})}
+      if(availableAmount<=0){await client.query('ROLLBACK');return res.status(400).json({error:'There is no available balance to request.'})}
+      const payout=await client.query("INSERT INTO public.vendor_payouts(vendor_id,amount,currency,status,provider,idempotency_key) VALUES($1,$2,'KES','requested','manual',$3) RETURNING id,amount,currency,status,provider,requested_at",[req.vendor.vendor_id,availableAmount,idempotencyKey]);
+      await client.query("UPDATE public.vendor_earnings SET status='payout_pending',updated_at=NOW() WHERE vendor_id=$1 AND status='available'",[req.vendor.vendor_id]);
+      await client.query('COMMIT');
+      res.status(201).json({...payout.rows[0],message:'Payout request recorded for Super Admin review. No transfer has been made yet.'});
+    }catch(error){await client.query('ROLLBACK');if(error.code==='23505')return res.status(409).json({error:'Payout request key was already used.'});throw error}finally{client.release()}
   }));
 
   return router;
