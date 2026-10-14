@@ -58,6 +58,8 @@ CREATE TABLE IF NOT EXISTS public.vendor_order_items (
   vendor_id BIGINT NOT NULL REFERENCES public.vendors(id),
   product_id INTEGER NOT NULL REFERENCES public.products(id),
   product_name TEXT NOT NULL,
+  size TEXT NOT NULL DEFAULT '',
+  color TEXT NOT NULL DEFAULT '',
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
   line_total INTEGER NOT NULL CHECK (line_total >= 0),
@@ -66,7 +68,7 @@ CREATE TABLE IF NOT EXISTS public.vendor_order_items (
   fulfilment_status TEXT NOT NULL DEFAULT 'awaiting_payment'
     CHECK (fulfilment_status IN ('awaiting_payment','processing','dispatched','delivered','cancelled','refunded')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(order_id, product_id)
+  UNIQUE(order_id, product_id, size, color)
 );
 CREATE INDEX IF NOT EXISTS vendor_order_items_vendor_idx ON public.vendor_order_items(vendor_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS vendor_order_items_order_idx ON public.vendor_order_items(order_id);
