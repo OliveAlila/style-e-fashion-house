@@ -266,3 +266,46 @@ Confirm Paystack merchant eligibility and the payment channels available to your
 ## Admin dashboard
 
 The initial responsive admin dashboard and additive schema migration are documented in [ADMIN_SETUP.md](./ADMIN_SETUP.md). Review the documented production limitations before deployment; the existing checkout still needs discount, coupon, configurable-delivery, and variant-inventory integration before those features should be used for live orders.
+
+## Multi-vendor marketplace foundation
+
+The multi-vendor feature branch adds a separate role-aware API and additive PostgreSQL migration. Existing products and orders are preserved; products without a vendor owner continue to behave as platform-owned products.
+
+### Marketplace environment variable
+
+Set `MARKETPLACE_AUTH_SECRET` in the backend environment to a cryptographically random value with at least 32 characters. Keep it on the server only. Buyer/vendor registration and marketplace login return a bearer token with a seven-day expiry; client applications must keep it private and should not commit it to source control.
+
+### Marketplace API routes
+
+| Method | Endpoint | Access |
+| --- | --- | --- |
+| POST | `/api/marketplace/register` | Public buyer registration; seller applications use `role: "vendor"` plus store fields |
+| POST | `/api/marketplace/login` | Public login |
+| GET | `/api/marketplace/me` | Signed-in buyer or vendor |
+| GET | `/api/marketplace/stores` | Public list of approved vendor stores |
+| GET | `/api/marketplace/stores/:slug` | Public vendor store and its products |
+| GET | `/api/marketplace/stores/:slug/reviews` | Public published reviews |
+| GET/POST/PATCH | `/api/marketplace/vendor/products` | Approved vendor's own products |
+| POST | `/api/marketplace/vendor/products/:id/archive` | Archive an approved vendor's own product |
+| GET | `/api/marketplace/vendor/dashboard` | Approved vendor's summary and earnings |
+| GET | `/api/marketplace/vendor/orders` | Approved vendor's order lines only |
+| GET/POST | `/api/marketplace/vendor/payouts` | Approved vendor payout requests |
+| POST | `/api/marketplace/reviews` | Signed-in buyer, verified against a paid order and account email |
+| POST | `/api/marketplace/admin/bootstrap-super-admin` | One-time super-admin bootstrap; requires the existing server `ADMIN_TOKEN` |
+| GET/PATCH | `/api/marketplace/admin/vendors`, `/api/marketplace/admin/vendors/:id/status` | Super admin |
+| GET/POST/PATCH | `/api/marketplace/admin/commissions`, `/api/marketplace/admin/commissions/:id` | Super admin |
+| GET/PATCH | `/api/marketplace/admin/payouts`, `/api/marketplace/admin/payouts/:id/status` | Super admin |
+
+Registration accepts JSON such as `{"fullName":"Seller Name","email":"seller@example.com","password":"at-least-12-characters","role":"vendor","storeName":"Seller Boutique"}`. Seller applications are created in pending status and must be approved before the vendor can list products. Never accept a role value of `super_admin` from public registration.
+
+The marketplace bootstrap endpoint accepts the existing admin token in the `Authorization: Bearer …` header and creates a super-admin account only if none exists. After the first super admin is created, that endpoint returns a conflict rather than allowing another bootstrap.
+
+### Commission and earnings rules
+
+Commission rules support percentage, flat fee per product line, and tiered percentage configurations. At checkout, each vendor-owned line snapshots the selected active rule and its commission/net amounts. Those amounts remain pending until server-side Paystack verification marks the order paid; then the ledger becomes eligible for payout. Legacy products without a vendor store are not included in seller earnings.
+
+Payout requests reserve a specific amount against ledger lines to prevent the same earnings from being requested twice. Super-admins can reconcile the request with a real external transfer reference and then mark it paid. **This branch does not initiate a transfer or split the original Paystack charge automatically.** Before enabling live payouts, confirm supported Paystack transfer/subaccount capabilities for the merchant account and implement/test the provider transfer flow, recipient onboarding, webhook handling, refund reversals, and reconciliation.
+
+### Database migration
+
+On backend startup, `server/migrations/002_multi_vendor_foundation.sql` runs after the existing admin migration. It adds marketplace accounts, vendor stores, commission rules, vendor order lines, payout records/allocations, review records, and a nullable vendor owner on products. Take a production database backup before deploying any schema change and test this branch against a staging database first.
