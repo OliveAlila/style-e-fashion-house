@@ -78,6 +78,15 @@ CREATE TABLE IF NOT EXISTS public.vendor_payouts (
   processed_at TIMESTAMPTZ
 );
 
+CREATE TABLE IF NOT EXISTS public.vendor_payout_allocations (
+  id BIGSERIAL PRIMARY KEY,
+  payout_id BIGINT NOT NULL REFERENCES public.vendor_payouts(id) ON DELETE RESTRICT,
+  vendor_order_line_id BIGINT NOT NULL REFERENCES public.vendor_order_lines(id) ON DELETE RESTRICT,
+  amount INTEGER NOT NULL CHECK (amount > 0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(payout_id, vendor_order_line_id)
+);
+
 CREATE TABLE IF NOT EXISTS public.vendor_reviews (
   id BIGSERIAL PRIMARY KEY,
   buyer_user_id BIGINT NOT NULL REFERENCES public.marketplace_users(id) ON DELETE RESTRICT,
