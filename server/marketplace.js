@@ -118,28 +118,31 @@ export function createMarketplaceRouter({ pool }) {
   // Public review form. Reviews submitted without order proof remain pending and are not public.
   router.post('/reviews', wrap(async (req, res) => {
     const b = req.body || {};
-    const vendorId = Number(b.vendor_id);
     const productId = b.product_id == null ? null : Number(b.product_id);
     const rating = Number(b.rating);
     const reviewerName = String(b.reviewer_name || '').trim().slice(0, 120);
     const buyerEmail = String(b.buyer_email || '').trim().toLowerCase();
     const title = String(b.title || '').trim().slice(0, 160);
     const body = String(b.body || '').trim().slice(0, 3000);
-    if (!Number.isSafeInteger(vendorId) || vendorId < 1 ||
-        (productId !== null && (!Number.isSafeInteger(productId) || productId < 1)) ||
+    const orderReference = String(b.order_reference || '').trim();
+    if ((productId !== null && (!Number.isSafeInteger(productId) || productId < 1)) ||
         !Number.isInteger(rating) || rating < 1 || rating > 5 ||
-        reviewerName.length < 2 || !emailPattern.test(buyerEmail)) {
-      return res.status(400).json({ error: 'Provide a name, valid email, and a rating from 1 to 5.' });
+        reviewerName.length < 2 || !emailPattern.test(buyerEmail) || !orderReference) {
+      return res.status(400).json({ error: 'Provide your name, valid email, order reference, and a rating from 1 to 5.' });
     }
     const result = await pool.query(`
-      INSERT INTO public.vendor_reviews(vendor_id,product_id,buyer_email,reviewer_name,rating,title,body,status,verified_purchase)
-      SELECT v.id, p.id, $3, $4, $5, $6, $7, 'pending', FALSE
-      FROM public.vendors v
-      LEFT JOIN public.products p ON p.id=$2 AND p.vendor_id=v.id
-      WHERE v.id=$1 AND ($2::int IS NULL OR p.id IS NOT NULL)
-      RETURNING id,vendor_id,product_id,rating,status,created_at
-    `, [vendorId, productId, buyerEmail, reviewerName, rating, title, body]);
-    if (!result.rowCount) return res.status(404).json({ error: 'Vendor or product not found.' });
+      INSERT INTO public.vendor_reviews(vendor_id,product_id,order_id,buyer_email,reviewer_name,rating,title,body,status,verified_purchase)
+      SELECT v.id, p.id, o.id, $2, $3, $4, $5, $6, 'pending', TRUE
+      FROM public.orders o
+      JOIN public.vendor_order_items vi ON vi.order_id=o.id
+      JOIN public.vendors v ON v.id=vi.vendor_id
+      LEFT JOIN public.products p ON p.id=vi.product_id AND p.vendor_id=v.id
+      WHERE o.reference=$1 AND LOWER(o.email)=LOWER($2) AND o.payment_status='paid'
+        AND ($7::int IS NULL OR p.id=$7) AND ($7::int IS NULL OR vi.product_id=$7)
+      GROUP BY v.id,p.id,o.id
+      RETURNING id,vendor_id,product_id,order_id,rating,status,created_at
+    `, [orderReference, buyerEmail, reviewerName, rating, title, body, productId]);
+    if (!result.rowCount) return res.status(403).json({ error: 'No paid order matching that email and product was found. Reviews require a verified purchase from a vendor.' });
     res.status(201).json({ ...result.rows[0], message: 'Review submitted for moderation.' });
   }));
 
