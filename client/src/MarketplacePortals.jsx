@@ -18,6 +18,7 @@ export function VendorPortal({ API, money }) {
   const [busy, setBusy] = useState(false);
   const [product, setProduct] = useState({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
   const [payoutAmount, setPayoutAmount] = useState('');
+  const [imageFile, setImageFile] = useState(null);
   const [review, setReview] = useState({orderReference:'',storeId:'',productId:'',rating:'5',title:'',body:''});
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
 
@@ -78,15 +79,34 @@ export function VendorPortal({ API, money }) {
   useEffect(() => { if (token && user) load(); }, [token, user, tab]);
 
   async function saveProduct(event) {
-    event.preventDefault(); setBusy(true);
+    event.preventDefault();
+    if (!imageFile && !product.images.trim()) { setMessage('Choose an image file or enter an HTTPS image URL.'); return; }
+    if (imageFile && product.images.trim()) { setMessage('Choose either a device upload or an image URL, not both.'); return; }
+    if (imageFile && imageFile.size > 5 * 1024 * 1024) { setMessage('Choose an image smaller than 5 MB.'); return; }
+    setBusy(true); setMessage('');
     try {
+      let imageUrls;
+      if (imageFile) {
+        const imageData = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(new Error('Could not read that image. Please try another file.'));
+          reader.readAsDataURL(imageFile);
+        });
+        const uploaded = await api('/vendor/upload-image', { method:'POST', body:JSON.stringify({image:imageData}) });
+        imageUrls = [uploaded.url];
+      } else {
+        imageUrls = product.images.split(',').map(x=>x.trim()).filter(Boolean);
+        if (imageUrls.some(url => !/^https:\/\//i.test(url))) throw new Error('Use HTTPS image URLs only.');
+      }
       const body = { ...product, price:Number(product.price), stock:Number(product.stock),
         sizes:product.sizes.split(',').map(x=>x.trim()).filter(Boolean),
         colors:product.colors.split(',').map(x=>x.trim()).filter(Boolean),
-        image_gallery:product.images.split(',').map(x=>x.trim()).filter(Boolean) };
+        image_gallery:imageUrls };
       delete body.images;
       await api('/vendor/products', { method:'POST', body:JSON.stringify(body) });
       setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
+      setImageFile(null);
       setMessage('Product added to your store.'); await load();
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
@@ -154,7 +174,14 @@ export function VendorPortal({ API, money }) {
           <input required type="number" min="0" step="1" placeholder="Stock quantity" value={product.stock} onChange={e=>setProduct({...product,stock:e.target.value})}/>
           <input required placeholder="Sizes, separated by commas" value={product.sizes} onChange={e=>setProduct({...product,sizes:e.target.value})}/>
           <input required placeholder="Colours, separated by commas" value={product.colors} onChange={e=>setProduct({...product,colors:e.target.value})}/>
-          <input required className="wide" placeholder="HTTPS product image URL(s), comma separated" value={product.images} onChange={e=>setProduct({...product,images:e.target.value})}/>
+          <div className="wide">
+            <label htmlFor="vendor-product-image">Product image file (JPG, PNG or WebP; max 5 MB)</label>
+            <input id="vendor-product-image" type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]||null;setImageFile(file);if(file)setProduct({...product,images:''});}} />
+            {imageFile && <p className="admin-message">Selected file: {imageFile.name}</p>}
+            <label htmlFor="vendor-product-image-url">Or image URL(s), HTTPS only, comma separated</label>
+            <input id="vendor-product-image-url" placeholder="https://example.com/product.jpg" value={product.images} onChange={e=>{setProduct({...product,images:e.target.value});if(e.target.value.trim())setImageFile(null);}} />
+            <p className="admin-message">Required: choose a file from your device OR enter an image URL. Use only one method.</p>
+          </div>
           <textarea className="wide" placeholder="Product description" value={product.description} onChange={e=>setProduct({...product,description:e.target.value})}/>
         </div><button className="btn btn-dark" disabled={busy}>ADD PRODUCT</button></form>
         <div className="admin-table-wrap"><table><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{p.name}</td><td>{money(p.price)}</td><td>{p.stock}</td><td>{p.active?'Active':'Archived'}</td></tr>)}</tbody></table></div>
