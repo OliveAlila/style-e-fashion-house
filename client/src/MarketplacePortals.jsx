@@ -8,7 +8,7 @@ export function VendorPortal({ API, money }) {
   const [description, setDescription] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState(() => window.sessionStorage.getItem('style-marketplace-token') || '');
   const [user, setUser] = useState(null);
   const [store, setStore] = useState(null);
   const [tab, setTab] = useState('Dashboard');
@@ -27,6 +27,24 @@ export function VendorPortal({ API, money }) {
     if (!response.ok) throw new Error(result.error || 'Marketplace request failed.');
     return result;
   }
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(API + '/marketplace/me', { headers: { Authorization: 'Bearer ' + token } });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Your session expired. Please sign in again.');
+        if (!cancelled) { setUser(result.user); setStore(result.store || null); }
+      } catch (error) {
+        if (!cancelled) { window.sessionStorage.removeItem('style-marketplace-token'); setToken(''); setUser(null); setStore(null); setMessage(error.message); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => { if (token) window.sessionStorage.setItem('style-marketplace-token', token); else window.sessionStorage.removeItem('style-marketplace-token'); }, [token]);
 
   async function authenticate(event) {
     event.preventDefault();
@@ -91,7 +109,7 @@ export function VendorPortal({ API, money }) {
     finally { setBusy(false); }
   }
 
-  const logout = () => { setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMessage('Signed out.'); };
+  const logout = () => { window.sessionStorage.removeItem('style-marketplace-token'); setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMessage('Signed out.'); };
 
   return <main className="admin-page section-wrap">
     <p className="eyebrow">THE STYLE MARKETPLACE</p><h1>Seller <em>studio.</em></h1>
