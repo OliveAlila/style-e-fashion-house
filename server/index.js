@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import pg from 'pg';
 import { createAdminRouter } from './admin.js';
+import { createMarketplaceRouter } from './marketplace.js';
 const { Pool } = pg;
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -59,6 +60,9 @@ async function init(){
  const adminMigration = await readFile(new URL('./migrations/001_admin_features.sql', import.meta.url), 'utf8');
  await pool.query(adminMigration);
  console.log('Admin database migration applied.');
+ const marketplaceMigration = await readFile(new URL('./migrations/002_multi_vendor_foundation.sql', import.meta.url), 'utf8');
+ await pool.query(marketplaceMigration);
+ console.log('Multi-vendor marketplace migration applied.');
  const count=(await pool.query('SELECT COUNT(*)::int AS n FROM products')).rows[0].n;
  if(!count) for(const p of seed) await pool.query('INSERT INTO products(name,category,type,price,images,description,sizes,colors,stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[p.name,p.category,p.type,p.price,p.images,p.description,JSON.stringify(p.sizes),JSON.stringify(p.colors),p.stock]);
 }
@@ -67,6 +71,7 @@ app.get('/api/health',(req,res)=>res.json({ok:true,service:'STYLE E-Fashion API'
 app.get('/api/products',async(req,res,next)=>{try{const {category,search}=req.query;const vals=[];let where='active=TRUE';if(category&&category!=='All'){vals.push(category);where+=' AND category=$'+vals.length;}if(search){vals.push('%'+String(search).slice(0,80)+'%');where+=' AND (name ILIKE $'+vals.length+' OR description ILIKE $'+vals.length+')';}const r=await pool.query(`SELECT * FROM products WHERE ${where} ORDER BY id`,vals);res.json(r.rows.map(safeProduct));}catch(e){next(e)}});
 app.get('/api/products/:id',async(req,res,next)=>{try{const r=await pool.query('SELECT * FROM products WHERE id=$1 AND active=TRUE',[req.params.id]);if(!r.rowCount)return res.status(404).json({error:'Product not found'});res.json(safeProduct(r.rows[0]));}catch(e){next(e)}});
 function admin(req,res,next){const supplied=Buffer.from((req.headers.authorization||'').replace(/^Bearer\s+/i,''));const configured=Buffer.from(process.env.ADMIN_TOKEN||'');if(!configured.length||supplied.length!==configured.length||!crypto.timingSafeEqual(supplied,configured))return res.status(401).json({error:'Admin authorization required'});next();}
+app.use('/api/marketplace', createMarketplaceRouter({ pool, admin }));
 app.use('/api/admin', createAdminRouter({ pool, admin, paystackSecret: process.env.PAYSTACK_SECRET_KEY }));
 app.get('/api/admin/orders',admin,async(req,res,next)=>{try{const r=await pool.query('SELECT * FROM orders ORDER BY created_at DESC LIMIT 200');res.json(r.rows)}catch(e){next(e)}});
 app.patch('/api/admin/orders/:id',admin,async(req,res,next)=>{try{const allowed=['processing','dispatched','delivered','cancelled','refunded'];if(!allowed.includes(req.body.order_status))return res.status(400).json({error:'Invalid order status'});const r=await pool.query('UPDATE orders SET order_status=$1 WHERE id=$2 RETURNING *',[req.body.order_status,req.params.id]);if(!r.rowCount)return res.status(404).json({error:'Order not found'});res.json(r.rows[0])}catch(e){next(e)}});
