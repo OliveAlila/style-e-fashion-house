@@ -25,3 +25,10 @@
 .vendor-store-card p{font-size:12px;line-height:1.7;color:var(--muted)}
 .vendor-stars{color:#9e7a2d;letter-spacing:.08em}
 @media(max-width:760px){.vendor-grid,.vendor-store-grid{grid-template-columns:1fr}.vendor-panel{padding:16px}.vendor-form{grid-template-columns:1fr}.vendor-form .wide{grid-column:auto}.vendor-table{min-width:620px}.vendor-table-wrap{overflow-x:auto}}
+
+/* Marketplace admin data tables */
+.vendor-table-wrap{overflow-x:auto;margin:20px 0;border:1px solid var(--line);background:#fff}
+.vendor-table small{display:block;color:var(--muted);margin-top:5px;white-space:normal;max-width:320px}
+.vendor-table button{border:1px solid var(--line);background:white;padding:7px 9px;margin:2px;font-size:10px;cursor:pointer}
+.vendor-table button:hover{background:var(--dark);color:#fff}
+.vendor-panel .vendor-form{margin-top:15px}
