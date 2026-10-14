@@ -19,6 +19,7 @@ export function VendorPortal({ API, money }) {
   const [product, setProduct] = useState({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
   const [payoutAmount, setPayoutAmount] = useState('');
   const [imageFile, setImageFile] = useState(null);
+  const [savingProduct, setSavingProduct] = useState(false);
   const [review, setReview] = useState({orderReference:'',storeId:'',productId:'',rating:'5',title:'',body:''});
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
 
@@ -80,15 +81,26 @@ export function VendorPortal({ API, money }) {
 
   async function saveProduct(event) {
     event.preventDefault();
+    setMessage('');
+
+    // Validate here so a missing field always produces visible feedback.
+    const price = Number(product.price);
+    const stock = Number(product.stock);
+    const sizes = product.sizes.split(',').map(x => x.trim()).filter(Boolean);
+    const colors = product.colors.split(',').map(x => x.trim()).filter(Boolean);
+    if (!product.name.trim()) { setMessage('Enter a product name.'); return; }
+    if (!Number.isSafeInteger(price) || price < 1) { setMessage('Enter a valid whole-number price greater than zero.'); return; }
+    if (!Number.isSafeInteger(stock) || stock < 0) { setMessage('Enter a valid stock quantity.'); return; }
+    if (!sizes.length) { setMessage('Enter at least one size.'); return; }
+    if (!colors.length) { setMessage('Enter at least one colour.'); return; }
     if (!imageFile && !product.images.trim()) { setMessage('Choose an image file or enter an HTTPS image URL.'); return; }
     if (imageFile && product.images.trim()) { setMessage('Choose either a device upload or an image URL, not both.'); return; }
     if (imageFile && imageFile.size > 5 * 1024 * 1024) { setMessage('Choose an image smaller than 5 MB.'); return; }
-    setBusy(true); setMessage('');
+
+    setSavingProduct(true);
     try {
       let imageUrls;
       if (imageFile) {
-        // Request a signed upload from our API, then send the file directly to Cloudinary.
-        // This is the same upload flow already used by the working admin dashboard.
         const signed = await api('/vendor/uploads/sign', { method:'POST', body:JSON.stringify({}) });
         if (!signed.cloud_name || !signed.api_key || !signed.timestamp || !signed.folder || !signed.signature) {
           throw new Error('The server returned incomplete Cloudinary upload details. Check the backend configuration.');
@@ -113,20 +125,32 @@ export function VendorPortal({ API, money }) {
         }
         imageUrls = [result.secure_url];
       } else {
-        imageUrls = product.images.split(',').map(x=>x.trim()).filter(Boolean);
+        imageUrls = product.images.split(',').map(x => x.trim()).filter(Boolean);
         if (imageUrls.some(url => !/^https:\/\//i.test(url))) throw new Error('Use HTTPS image URLs only.');
       }
-      const body = { ...product, price:Number(product.price), stock:Number(product.stock),
-        sizes:product.sizes.split(',').map(x=>x.trim()).filter(Boolean),
-        colors:product.colors.split(',').map(x=>x.trim()).filter(Boolean),
-        image_gallery:imageUrls };
+
+      const body = {
+        ...product,
+        name: product.name.trim(),
+        price,
+        stock,
+        sizes,
+        colors,
+        image_gallery: imageUrls
+      };
       delete body.images;
       await api('/vendor/products', { method:'POST', body:JSON.stringify(body) });
       setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
       setImageFile(null);
-      setMessage('Product added to your store.'); await load();
-    } catch (error) { setMessage(error.message); }
-    finally { setBusy(false); }
+      const fileInput = document.getElementById('vendor-product-image');
+      if (fileInput) fileInput.value = '';
+      await load();
+      setMessage('Product added successfully. It is now listed in your seller products.');
+    } catch (error) {
+      setMessage(error.message || 'Could not add the product. Please try again.');
+    } finally {
+      setSavingProduct(false);
+    }
   }
 
   async function requestPayout(event) {
@@ -183,7 +207,7 @@ export function VendorPortal({ API, money }) {
         <p>Your store: <b>{dashboard.store?.name}</b> · Public store slug: <code>{dashboard.store?.slug}</code></p>
       </>}
       {user.role==='vendor' && store?.status==='approved' && tab==='Products' && <>
-        <form className="admin-form" onSubmit={saveProduct}><h2>Add a product</h2><div className="admin-fields">
+        <form className="admin-form" onSubmit={saveProduct} onInvalidCapture={e=>{const field=e.target;if(field?.validity?.valueMissing)setMessage(field.placeholder?\`Please complete: ${field.placeholder}.\`:'Please complete the required fields.');else if(field?.validity?.badInput)setMessage('Enter a valid value in the highlighted field.');}}><h2>Add a product</h2><div className="admin-fields">
           <input required placeholder="Product name" value={product.name} onChange={e=>setProduct({...product,name:e.target.value})}/>
           <select value={product.category} onChange={e=>setProduct({...product,category:e.target.value})}>{['STYLE WOMAN','STYLE MAMA','STYLE KIDS','SETS & GIFTS'].map(x=><option key={x}>{x}</option>)}</select>
           <input placeholder="Type" value={product.type} onChange={e=>setProduct({...product,type:e.target.value})}/>
@@ -200,7 +224,7 @@ export function VendorPortal({ API, money }) {
             <p className="admin-message">Required: choose a file from your device OR enter an image URL. Use only one method.</p>
           </div>
           <textarea className="wide" placeholder="Product description" value={product.description} onChange={e=>setProduct({...product,description:e.target.value})}/>
-        </div><button className="btn btn-dark" disabled={busy}>ADD PRODUCT</button></form>
+        </div><button type="submit" className="btn btn-dark" disabled={savingProduct}>{savingProduct?'ADDING PRODUCT…':'ADD PRODUCT'}</button></form>
         <div className="admin-table-wrap"><table><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{p.name}</td><td>{money(p.price)}</td><td>{p.stock}</td><td>{p.active?'Active':'Archived'}</td></tr>)}</tbody></table></div>
       </>}
       {user.role==='vendor' && store?.status==='approved' && tab==='Orders' && <div className="admin-table-wrap"><table><thead><tr><th>Order</th><th>Product</th><th>Qty</th><th>Gross</th><th>Commission</th><th>Your net</th><th>Payment</th><th>Payout</th></tr></thead><tbody>{data.map(o=><tr key={o.line_id}><td>{o.reference}<small>{o.customer_name}</small></td><td>{o.product_name}</td><td>{o.quantity}</td><td>{money(o.line_subtotal)}</td><td>{money(o.commission_amount)}</td><td>{money(o.vendor_net_amount)}</td><td>{o.payment_status}</td><td>{o.payout_status}</td></tr>)}</tbody></table></div>}
