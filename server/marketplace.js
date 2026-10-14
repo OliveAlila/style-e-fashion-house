@@ -277,6 +277,56 @@ export function createMarketplaceRouter({ pool }) {
     res.json(result.rows[0]);
   }));
 
+  // Vendor application intake. Applicants remain pending; this does not grant access.
+  router.post('/vendor-applications',wrap(async(req,res)=>{
+    const b=req.body||{};
+    const name=String(b.name||'').trim().slice(0,120),email=String(b.email||'').trim().toLowerCase();
+    const store=String(b.store_name||'').trim().slice(0,160),phone=String(b.phone||'').trim().slice(0,40);
+    const description=String(b.description||'').trim().slice(0,3000);
+    if(name.length<2||!emailPattern.test(email)||store.length<2)return res.status(400).json({error:'Name, valid email and store name are required.'});
+    const r=await pool.query(\`
+      INSERT INTO public.vendor_applications(name,email,store_name,phone,description)
+      VALUES($1,$2,$3,$4,$5) RETURNING id,status,created_at
+    \`,[name,email,store,phone,description]);
+    res.status(201).json({...r.rows[0],message:'Application received. The team will review it before seller access is enabled.'});
+  }));
+
+  router.get('/admin/vendor-applications',requireSuperAdmin,wrap(async(_req,res)=>{
+    const r=await pool.query('SELECT * FROM public.vendor_applications ORDER BY created_at DESC LIMIT 500');
+    res.json(r.rows);
+  }));
+
+  router.patch('/admin/vendor-applications/:id',requireSuperAdmin,wrap(async(req,res)=>{
+    const status=String(req.body?.status||'');
+    if(!['pending','approved','rejected'].includes(status))return res.status(400).json({error:'Invalid application status.'});
+    const c=await pool.connect();
+    try{
+      await c.query('BEGIN');
+      const app=await c.query('UPDATE public.vendor_applications SET status=$1,reviewed_at=NOW() WHERE id=$2 RETURNING *',[status,req.params.id]);
+      if(!app.rowCount){await c.query('ROLLBACK');return res.status(404).json({error:'Vendor application not found.'})}
+      if(status==='approved'){
+        const a=app.rows[0];
+        const base=a.store_name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80);
+        const slug=base+'-'+a.id;
+        const u=await c.query(\`
+          INSERT INTO public.marketplace_users(email,display_name,role,status)
+          VALUES($1,$2,'vendor','pending')
+          ON CONFLICT(email) DO UPDATE SET display_name=EXCLUDED.display_name
+          RETURNING id
+        \`,[a.email,a.name]);
+        const vendor=await c.query(\`
+          INSERT INTO public.vendors(user_id,store_name,slug,description,contact_email,contact_phone,verification_status)
+          VALUES($1,$2,$3,$4,$5,$6,'pending')
+          ON CONFLICT(user_id) DO UPDATE SET store_name=EXCLUDED.store_name
+          RETURNING id,store_name,slug,verification_status
+        \`,[u.rows[0].id,a.store_name,slug,a.description,a.email,a.phone]);
+        await c.query("INSERT INTO public.marketplace_audit_log(actor_role,action,entity_type,entity_id,details) VALUES('super_admin','application_approved','vendor',$1,$2::jsonb)",[String(vendor.rows[0].id),JSON.stringify({application_id:a.id,email:a.email})]);
+      }
+      await c.query('COMMIT');
+      res.json(app.rows[0]);
+    }catch(error){await c.query('ROLLBACK');if(error.code==='23505')return res.status(409).json({error:'A vendor or store with this email/slug already exists.'});throw error}finally{c.release()}
+  }));
+
   router.get('/admin/summary',requireSuperAdmin,wrap(async(_req,res)=>{
     const [vendors,products,orders,earnings,payouts,reviews]=await Promise.all([
       pool.query("SELECT COUNT(*)::int AS n FROM public.vendors"),
