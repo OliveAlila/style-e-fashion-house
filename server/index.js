@@ -151,10 +151,14 @@ app.post('/api/checkout',async(req,res,next)=>{try{
      ORDER BY l.vendor_store_id
    `,[order.id,vendorIds])).rows;
    if(shareRows.length!==vendorIds.length||shareRows.some(row=>!/^ACCT_[A-Za-z0-9]+$/.test(row.paystack_subaccount_code||''))){
-     return res.status(503).json({error:'Automatic Paystack settlement is not configured for every approved seller in this cart. Add and verify each seller Paystack subaccount before retrying.'});
+     await pool.query("UPDATE orders SET order_status='cancelled' WHERE id=$1 AND payment_status<>'paid'",[order.id]);
+     await pool.query("UPDATE public.vendor_order_lines SET payout_status='failed' WHERE order_id=$1 AND payout_status='pending'",[order.id]);
+     return res.status(503).json({error:'Automatic Paystack settlement is not configured for every approved seller in this cart. Add and verify each seller Paystack subaccount, then place the order again.'});
    }
    const shares=shareRows.map(row=>({subaccount:row.paystack_subaccount_code,share:Number(row.vendor_share)*100}));
    if(shares.some(row=>!Number.isSafeInteger(row.share)||row.share<0)||shares.reduce((sum,row)=>sum+row.share,0)>total*100){
+     await pool.query("UPDATE orders SET order_status='cancelled' WHERE id=$1 AND payment_status<>'paid'",[order.id]);
+     await pool.query("UPDATE public.vendor_order_lines SET payout_status='failed' WHERE order_id=$1 AND payout_status='pending'",[order.id]);
      return res.status(409).json({error:'The seller split amounts exceed the checkout total. Check commission and delivery settings.'});
    }
    splitPayload.split={type:'flat',bearer_type:'account',subaccounts:shares};
