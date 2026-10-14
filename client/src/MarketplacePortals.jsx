@@ -1,0 +1,189 @@
+import React, { useEffect, useState } from 'react';
+
+export function VendorPortal({ API, money }) {
+  const [mode, setMode] = useState('login');
+  const [fullName, setFullName] = useState('');
+  const [storeName, setStoreName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [description, setDescription] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [token, setToken] = useState('');
+  const [user, setUser] = useState(null);
+  const [store, setStore] = useState(null);
+  const [tab, setTab] = useState('Dashboard');
+  const [data, setData] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
+  const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [product, setProduct] = useState({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [review, setReview] = useState({orderReference:'',storeId:'',productId:'',rating:'5',title:'',body:''});
+  const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
+
+  async function api(path, options = {}) {
+    const response = await fetch(API + '/marketplace' + path, { ...options, headers: { ...headers, ...(options.headers || {}) } });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Marketplace request failed.');
+    return result;
+  }
+
+  async function authenticate(event) {
+    event.preventDefault();
+    setBusy(true); setMessage('');
+    try {
+      const registering = mode === 'vendor' || mode === 'buyer';
+      const body = registering
+        ? { fullName, email, password, role: mode === 'vendor' ? 'vendor' : 'buyer', ...(mode === 'vendor' ? { storeName, phone, storeDescription: description } : {}) }
+        : { email, password };
+      const result = await api(registering ? '/register' : '/login', { method:'POST', body:JSON.stringify(body) });
+      setToken(result.token); setUser(result.user); setStore(result.store || null);
+      setTab(result.user.role === 'buyer' ? 'Reviews' : 'Dashboard');
+      setMessage(result.message || 'Signed in successfully.');
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function load() {
+    if (!token || !user) return;
+    setBusy(true); setMessage('');
+    try {
+      if (user.role === 'vendor') {
+        if (tab === 'Dashboard') setDashboard(await api('/vendor/dashboard'));
+        if (tab === 'Products') setData(await api('/vendor/products'));
+        if (tab === 'Orders') setData(await api('/vendor/orders'));
+        if (tab === 'Payouts') setData(await api('/vendor/payouts'));
+      } else if (user.role === 'buyer' && tab === 'Reviews') setData(await api('/stores'));
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+  useEffect(() => { if (token && user) load(); }, [token, user, tab]);
+
+  async function saveProduct(event) {
+    event.preventDefault(); setBusy(true);
+    try {
+      const body = { ...product, price:Number(product.price), stock:Number(product.stock),
+        sizes:product.sizes.split(',').map(x=>x.trim()).filter(Boolean),
+        colors:product.colors.split(',').map(x=>x.trim()).filter(Boolean),
+        image_gallery:product.images.split(',').map(x=>x.trim()).filter(Boolean) };
+      delete body.images;
+      await api('/vendor/products', { method:'POST', body:JSON.stringify(body) });
+      setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
+      setMessage('Product added to your store.'); await load();
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function requestPayout(event) {
+    event.preventDefault(); setBusy(true);
+    try { const result = await api('/vendor/payouts', { method:'POST', body:JSON.stringify({amount:Number(payoutAmount)}) }); setMessage(result.message); setPayoutAmount(''); await load(); }
+    catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  async function submitReview(event) {
+    event.preventDefault(); setBusy(true);
+    try {
+      await api('/reviews', { method:'POST', body:JSON.stringify({...review,storeId:Number(review.storeId),productId:review.productId ? Number(review.productId) : null,rating:Number(review.rating)}) });
+      setMessage('Thank you. Your verified-purchase review was submitted.');
+      setReview({...review,orderReference:'',title:'',body:''});
+    } catch (error) { setMessage(error.message); }
+    finally { setBusy(false); }
+  }
+
+  const logout = () => { setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMessage('Signed out.'); };
+
+  return <main className="admin-page section-wrap">
+    <p className="eyebrow">THE STYLE MARKETPLACE</p><h1>Seller <em>studio.</em></h1>
+    <p>Manage a fashion store, products, orders and earnings. New stores are reviewed before selling is enabled.</p>
+    {!user ? <>
+      <div className="admin-toolbar"><div className="admin-tabs">
+        <button className={mode==='login'?'active':''} onClick={()=>setMode('login')}>Sign in</button>
+        <button className={mode==='buyer'?'active':''} onClick={()=>setMode('buyer')}>Buyer account</button>
+        <button className={mode==='vendor'?'active':''} onClick={()=>setMode('vendor')}>Apply to sell</button>
+      </div></div>
+      <form className="admin-form" onSubmit={authenticate}>
+        <h2>{mode==='vendor'?'Create seller account':mode==='buyer'?'Create buyer account':'Welcome back'}</h2>
+        <div className="admin-fields">
+          {mode!=='login' && <input required placeholder="Full name" value={fullName} onChange={e=>setFullName(e.target.value)}/>}
+          <input required type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)}/>
+          <input required type="password" minLength={mode==='login'?1:12} placeholder={mode==='login'?'Password':'Password (at least 12 characters)'} value={password} onChange={e=>setPassword(e.target.value)} autoComplete={mode==='login'?'current-password':'new-password'}/>
+          {mode==='vendor' && <>
+            <input required placeholder="Store name" value={storeName} onChange={e=>setStoreName(e.target.value)}/>
+            <input placeholder="Phone number (optional)" value={phone} onChange={e=>setPhone(e.target.value)}/>
+            <textarea className="wide" placeholder="Tell buyers about your store" value={description} onChange={e=>setDescription(e.target.value)}/>
+          </>}
+        </div>
+        <button className="btn btn-dark" disabled={busy}>{busy?'PLEASE WAIT…':mode==='login'?'SIGN IN':mode==='vendor'?'SUBMIT SELLER APPLICATION':'CREATE BUYER ACCOUNT'}</button>
+        {message && <p className="admin-message" role="status">{message}</p>}
+      </form>
+    </> : <>
+      <div className="admin-toolbar"><div className="admin-tabs">
+        {(user.role==='vendor'?['Dashboard','Products','Orders','Payouts']:user.role==='buyer'?['Reviews']:[]).map(item=><button key={item} className={tab===item?'active':''} onClick={()=>setTab(item)}>{item}</button>)}
+      </div><button className="admin-signout" onClick={logout}>Sign out</button></div>
+      {message && <p className="admin-message" role="status">{message}</p>}{busy && <p>Loading…</p>}
+      {user.role==='vendor' && store?.status!=='approved' && <div className="admin-form"><h2>Store application: {store?.status || 'pending'}</h2><p>Your application is saved. The seller tools unlock after platform approval.</p></div>}
+      {user.role==='vendor' && store?.status==='approved' && tab==='Dashboard' && dashboard && <>
+        <div className="admin-stat-grid">{[['Products',dashboard.products],['Orders',dashboard.orders],['Gross sales',money(dashboard.gross)],['Platform commission',money(dashboard.commission)],['Vendor earnings',money(dashboard.earnings)],['Store rating',dashboard.rating+' / 5'],['Payout requests pending',money(dashboard.pendingPayouts)],['Payouts marked paid',money(dashboard.paidPayouts)]].map(([label,value])=><article key={label}><span>{label}</span><strong>{value}</strong></article>)}</div>
+        <p>Your store: <b>{dashboard.store?.name}</b> · Public store slug: <code>{dashboard.store?.slug}</code></p>
+      </>}
+      {user.role==='vendor' && store?.status==='approved' && tab==='Products' && <>
+        <form className="admin-form" onSubmit={saveProduct}><h2>Add a product</h2><div className="admin-fields">
+          <input required placeholder="Product name" value={product.name} onChange={e=>setProduct({...product,name:e.target.value})}/>
+          <select value={product.category} onChange={e=>setProduct({...product,category:e.target.value})}>{['STYLE WOMAN','STYLE MAMA','STYLE KIDS','SETS & GIFTS'].map(x=><option key={x}>{x}</option>)}</select>
+          <input placeholder="Type" value={product.type} onChange={e=>setProduct({...product,type:e.target.value})}/>
+          <input required type="number" min="1" step="1" placeholder="Price (KES)" value={product.price} onChange={e=>setProduct({...product,price:e.target.value})}/>
+          <input required type="number" min="0" step="1" placeholder="Stock quantity" value={product.stock} onChange={e=>setProduct({...product,stock:e.target.value})}/>
+          <input required placeholder="Sizes, separated by commas" value={product.sizes} onChange={e=>setProduct({...product,sizes:e.target.value})}/>
+          <input required placeholder="Colours, separated by commas" value={product.colors} onChange={e=>setProduct({...product,colors:e.target.value})}/>
+          <input required className="wide" placeholder="HTTPS product image URL(s), comma separated" value={product.images} onChange={e=>setProduct({...product,images:e.target.value})}/>
+          <textarea className="wide" placeholder="Product description" value={product.description} onChange={e=>setProduct({...product,description:e.target.value})}/>
+        </div><button className="btn btn-dark" disabled={busy}>ADD PRODUCT</button></form>
+        <div className="admin-table-wrap"><table><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{p.name}</td><td>{money(p.price)}</td><td>{p.stock}</td><td>{p.active?'Active':'Archived'}</td></tr>)}</tbody></table></div>
+      </>}
+      {user.role==='vendor' && store?.status==='approved' && tab==='Orders' && <div className="admin-table-wrap"><table><thead><tr><th>Order</th><th>Product</th><th>Qty</th><th>Gross</th><th>Commission</th><th>Your net</th><th>Payment</th><th>Payout</th></tr></thead><tbody>{data.map(o=><tr key={o.line_id}><td>{o.reference}<small>{o.customer_name}</small></td><td>{o.product_name}</td><td>{o.quantity}</td><td>{money(o.line_subtotal)}</td><td>{money(o.commission_amount)}</td><td>{money(o.vendor_net_amount)}</td><td>{o.payment_status}</td><td>{o.payout_status}</td></tr>)}</tbody></table></div>}
+      {user.role==='vendor' && store?.status==='approved' && tab==='Payouts' && <>
+        <form className="admin-form" onSubmit={requestPayout}><h2>Request a payout</h2><p>Requests are reviewed and paid by the platform. This form does not transfer funds automatically.</p><div className="admin-fields"><input required type="number" min="1" step="1" placeholder="Amount in KES" value={payoutAmount} onChange={e=>setPayoutAmount(e.target.value)}/></div><button className="btn btn-dark" disabled={busy}>REQUEST PAYOUT</button></form>
+        <div className="admin-table-wrap"><table><thead><tr><th>Requested</th><th>Amount</th><th>Status</th><th>Payment reference</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{new Date(p.requested_at).toLocaleString()}</td><td>{money(p.amount)}</td><td>{p.status}</td><td>{p.provider_reference||'—'}</td></tr>)}</tbody></table></div>
+      </>}
+      {user.role==='buyer' && tab==='Reviews' && <form className="admin-form" onSubmit={submitReview}><h2>Review a store or product</h2><p>Reviews are accepted only if your paid order matches your account email and contains products from the selected store.</p><div className="admin-fields">
+        <input required placeholder="Paid order reference" value={review.orderReference} onChange={e=>setReview({...review,orderReference:e.target.value})}/>
+        <select required value={review.storeId} onChange={e=>setReview({...review,storeId:e.target.value})}><option value="">Choose store</option>{data.map(s=><option key={s.id} value={s.id}>{s.store_name}</option>)}</select>
+        <input type="number" min="1" max="5" value={review.rating} onChange={e=>setReview({...review,rating:e.target.value})} aria-label="Rating out of five"/>
+        <input placeholder="Product ID (optional; blank reviews store)" value={review.productId} onChange={e=>setReview({...review,productId:e.target.value})} />
+        <input className="wide" placeholder="Review title" value={review.title} onChange={e=>setReview({...review,title:e.target.value})}/>
+        <textarea className="wide" placeholder="Your review" value={review.body} onChange={e=>setReview({...review,body:e.target.value})}/>
+      </div><button className="btn btn-dark" disabled={busy}>SUBMIT REVIEW</button></form>}
+    </>}
+  </main>;
+}
+
+export function MarketplaceAdmin({ API, money }) {
+  const [mode,setMode]=useState('login'),[adminToken,setAdminToken]=useState(''),[fullName,setFullName]=useState(''),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[token,setToken]=useState(''),[user,setUser]=useState(null),[tab,setTab]=useState('Vendors'),[data,setData]=useState([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  const [rule,setRule]=useState({name:'Default percentage',calculationType:'percentage',percentage:'10',flatFee:'0',vendorStoreId:'',priority:'100',tiers:'[{"upTo":5000,"percentage":10},{"upTo":20000,"percentage":8}]'});
+  const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
+  async function api(path,options={}){const r=await fetch(API+'/marketplace'+path,{...options,headers:{...headers,...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Marketplace admin request failed.');return d}
+  async function bootstrap(e){e.preventDefault();setBusy(true);try{const r=await fetch(API+'/marketplace/admin/bootstrap-super-admin',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+adminToken},body:JSON.stringify({fullName,email,password})});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Could not create super admin.');setMessage(d.message);setMode('login')}catch(e){setMessage(e.message)}finally{setBusy(false)}}
+  async function login(e){e.preventDefault();setBusy(true);try{const d=await api('/login',{method:'POST',body:JSON.stringify({email,password})});if(d.user.role!=='super_admin')throw new Error('This account is not a super admin.');setToken(d.token);setUser(d.user);setMessage('Super admin access verified.')}catch(e){setMessage(e.message)}finally{setBusy(false)}}
+  async function load(){if(!user)return;setBusy(true);try{if(tab==='Vendors')setData(await api('/admin/vendors'));if(tab==='Commissions')setData(await api('/admin/commissions'));if(tab==='Payouts')setData(await api('/admin/payouts'))}catch(e){setMessage(e.message)}finally{setBusy(false)}}
+  useEffect(()=>{if(token&&user)load()},[tab,token,user]);
+  async function vendorStatus(id,status){try{await api('/admin/vendors/'+id+'/status',{method:'PATCH',body:JSON.stringify({status})});setMessage('Vendor status updated.');await load()}catch(e){setMessage(e.message)}}
+  async function saveRule(e){e.preventDefault();try{const body={...rule,percentage:rule.calculationType==='percentage'?Number(rule.percentage):null,flatFee:rule.calculationType==='flat'?Number(rule.flatFee):null,vendorStoreId:rule.vendorStoreId?Number(rule.vendorStoreId):null,priority:Number(rule.priority),tiers:rule.calculationType==='tiered'?JSON.parse(rule.tiers):[]};await api('/admin/commissions',{method:'POST',body:JSON.stringify(body)});setMessage('Commission rule created.');await load()}catch(e){setMessage(e.message||'Check the tiered JSON format.')}}
+  async function payoutAction(p,status){try{const body={status};if(status==='paid'){const ref=window.prompt('Enter confirmed external transfer reference. This action does not move money.');if(!ref)return;body.providerReference=ref}if(status==='failed')body.failureReason=window.prompt('Reason (optional)')||'Payment failed';await api('/admin/payouts/'+p.id+'/status',{method:'PATCH',body:JSON.stringify(body)});setMessage('Payout record updated.');await load()}catch(e){setMessage(e.message)}}
+  return <main className="admin-page section-wrap"><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Marketplace <em>control.</em></h1><p>Approve sellers, configure commissions, and reconcile payout requests. The current payout flow records requests but does not execute money transfers automatically.</p>
+    {!user ? <>
+      <div className="admin-toolbar"><div className="admin-tabs"><button className={mode==='login'?'active':''} onClick={()=>setMode('login')}>Sign in</button><button className={mode==='bootstrap'?'active':''} onClick={()=>setMode('bootstrap')}>Initial setup</button></div></div>
+      {mode==='bootstrap' ? <form className="admin-form" onSubmit={bootstrap}><h2>Create the first super admin</h2><p>Use the existing backend ADMIN_TOKEN once. This setup endpoint is disabled after the first super-admin account exists.</p><div className="admin-fields"><input required type="password" placeholder="ADMIN_TOKEN" value={adminToken} onChange={e=>setAdminToken(e.target.value)}/><input required placeholder="Full name" value={fullName} onChange={e=>setFullName(e.target.value)}/><input required type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)}/><input required type="password" minLength="14" placeholder="Password (at least 14 characters)" value={password} onChange={e=>setPassword(e.target.value)}/></div><button className="btn btn-dark" disabled={busy}>CREATE SUPER ADMIN</button></form> : <form className="admin-form" onSubmit={login}><h2>Super admin sign in</h2><div className="admin-fields"><input required type="email" placeholder="Email address" value={email} onChange={e=>setEmail(e.target.value)}/><input required type="password" placeholder="Password" value={password} onChange={e=>setPassword(e.target.value)}/></div><button className="btn btn-dark" disabled={busy}>SIGN IN</button></form>}
+      {message && <p className="admin-message" role="status">{message}</p>}
+    </> : <>
+      <div className="admin-toolbar"><div className="admin-tabs">{['Vendors','Commissions','Payouts'].map(x=><button key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</button>)}</div><button className="admin-signout" onClick={()=>{setUser(null);setToken('');setData([]);setMessage('Signed out.')}}>Sign out</button></div>
+      {message && <p className="admin-message" role="status">{message}</p>}{busy && <p>Loading…</p>}
+      {tab==='Vendors' && <div className="admin-table-wrap"><table><thead><tr><th>Store</th><th>Owner</th><th>Status</th><th>Gross sales</th><th>Commission</th><th>Vendor net</th><th>Review</th></tr></thead><tbody>{data.map(v=><tr key={v.id}><td>{v.store_name}<small>{v.slug}</small></td><td>{v.full_name}<small>{v.email}</small></td><td>{v.status}</td><td>{money(v.gross_sales)}</td><td>{money(v.platform_commission)}</td><td>{money(v.vendor_earnings)}</td><td><button onClick={()=>vendorStatus(v.id,'approved')}>Approve</button> <button onClick={()=>vendorStatus(v.id,'rejected')}>Reject</button> <button onClick={()=>vendorStatus(v.id,'suspended')}>Suspend</button></td></tr>)}</tbody></table></div>}
+      {tab==='Commissions' && <>
+        <form className="admin-form" onSubmit={saveRule}><h2>New commission rule</h2><div className="admin-fields"><input required placeholder="Rule name" value={rule.name} onChange={e=>setRule({...rule,name:e.target.value})}/><select value={rule.calculationType} onChange={e=>setRule({...rule,calculationType:e.target.value})}><option value="percentage">Percentage</option><option value="flat">Flat fee per product line</option><option value="tiered">Tiered percentage</option></select>{rule.calculationType==='percentage' && <input required type="number" min="0" max="100" step=".01" placeholder="Percentage" value={rule.percentage} onChange={e=>setRule({...rule,percentage:e.target.value})}/ >}{rule.calculationType==='flat' && <input required type="number" min="0" step="1" placeholder="Flat fee (KES)" value={rule.flatFee} onChange={e=>setRule({...rule,flatFee:e.target.value})}/ >}<input required type="number" min="1" step="1" placeholder="Priority (lower first)" value={rule.priority} onChange={e=>setRule({...rule,priority:e.target.value})}/><input type="number" min="1" placeholder="Vendor store ID (blank = all)" value={rule.vendorStoreId} onChange={e=>setRule({...rule,vendorStoreId:e.target.value})}/>{rule.calculationType==='tiered' && <textarea className="wide" value={rule.tiers} onChange={e=>setRule({...rule,tiers:e.target.value})} placeholder="Tier JSON"/></div><button className="btn btn-dark">CREATE RULE</button></form>
+        <div className="admin-table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Rate / fee</th><th>Vendor ID</th><th>Priority</th><th>Status</th><th>Action</th></tr></thead><tbody>{data.map(r=><tr key={r.id}><td>{r.name}</td><td>{r.calculation_type}</td><td>{r.calculation_type==='percentage'?r.percentage+'%':r.calculation_type==='flat'?money(r.flat_fee):'Tiered'}</td><td>{r.applies_to_vendor_id||'All'}</td><td>{r.priority}</td><td>{r.active?'Active':'Inactive'}</td><td><button onClick={async()=>{try{await api('/admin/commissions/'+r.id,{method:'PATCH',body:JSON.stringify({active:!r.active})});await load()}catch(e){setMessage(e.message)}}}>{r.active?'Deactivate':'Activate'}</button></td></tr>)}</tbody></table></div>
+      </>}
+      {tab==='Payouts' && <div className="admin-table-wrap"><table><thead><tr><th>Store</th><th>Amount</th><th>Status</th><th>Requested</th><th>Reference</th><th>Actions</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{p.store_name}</td><td>{money(p.amount)}</td><td>{p.status}</td><td>{new Date(p.requested_at).toLocaleString()}</td><td>{p.provider_reference||'—'}</td><td><button onClick={()=>payoutAction(p,'processing')}>Processing</button> <button onClick={()=>payoutAction(p,'paid')}>Mark paid</button> <button onClick={()=>payoutAction(p,'failed')}>Failed</button></td></tr>)}</tbody></table></div>}
+    </>}
+  </main>;
+}
