@@ -109,7 +109,7 @@ export function VendorPortal({ API, money }) {
     finally { setBusy(false); }
   }
 
-  const logout = () => { window.sessionStorage.removeItem('style-marketplace-token'); setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMessage('Signed out.'); };
+  const logout = () => { window.sessionStorage.removeItem('style-marketplace-token'); setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMode('login'); setFullName(''); setStoreName(''); setPhone(''); setDescription(''); setEmail(''); setPassword(''); setMessage('Signed out.'); };
 
   return <main className="admin-page section-wrap">
     <p className="eyebrow">THE STYLE MARKETPLACE</p><h1>Seller <em>studio.</em></h1>
