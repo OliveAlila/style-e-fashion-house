@@ -68,7 +68,7 @@ function AdminDashboard({API,money}){
  </main>
 }
 
-function routeView(pathname){if(pathname==='/payment-return')return 'return';if(pathname==='/admin')return 'admin';if(pathname==='/vendor'||pathname==='/sell')return 'vendor';if(pathname==='/marketplace-admin')return 'marketplace-admin';return 'home';}
+function routeView(pathname){const path=String(pathname||'/').toLowerCase().replace(/\/+$/,'')||'/';if(path==='/payment-return')return 'return';if(path==='/admin')return 'admin';if(path==='/vendor'||path==='/sell')return 'vendor';if(path==='/marketplace-admin')return 'marketplace-admin';return 'home';}
 function App(){
  const [products,setProducts]=useState(fallback),[category,setCategory]=useState('All'),[search,setSearch]=useState(''),[cart,setCart]=useState([]),[drawer,setDrawer]=useState(false),[selected,setSelected]=useState(null),[size,setSize]=useState(''),[color,setColor]=useState(''),[view,setView]=useState(()=>routeView(window.location.pathname)),[sort,setSort]=useState('featured'),[notice,setNotice]=useState(''),[checkout,setCheckout]=useState({name:'',email:'',phone:'',address:'',town:'',county:'Nairobi',deliveryMethod:'standard'}),[busy,setBusy]=useState(false),[orderResult,setOrderResult]=useState(null),[adminToken,setAdminToken]=useState(''),[adminOrders,setAdminOrders]=useState([]),[adminMessage,setAdminMessage]=useState('');
  useEffect(()=>{let icon=document.querySelector('link[rel="icon"]');if(!icon){icon=document.createElement('link');icon.rel='icon';document.head.appendChild(icon)}icon.type='image/png';icon.href=logo;},[]);
