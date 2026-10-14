@@ -91,6 +91,7 @@ export function createMarketplaceRouter({ pool, admin }) {
   const getStore = async userId => (await pool.query('SELECT * FROM public.vendor_stores WHERE user_id=$1', [userId])).rows[0];
 
   router.post('/register', wrap(async (req, res) => {
+    if (Buffer.byteLength(process.env.MARKETPLACE_AUTH_SECRET || '') < 32) return res.status(503).json({ error: 'Marketplace authentication is not configured. Set MARKETPLACE_AUTH_SECRET to at least 32 random characters.' });
     const fullName = String(req.body?.fullName || '').trim();
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
@@ -124,6 +125,7 @@ export function createMarketplaceRouter({ pool, admin }) {
   }));
 
   router.post('/login', wrap(async (req, res) => {
+    if (Buffer.byteLength(process.env.MARKETPLACE_AUTH_SECRET || '') < 32) return res.status(503).json({ error: 'Marketplace authentication is not configured.' });
     const email = String(req.body?.email || '').trim().toLowerCase();
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (!emailPattern.test(email) || !password || password.length > 72) return res.status(400).json({ error: 'Enter a valid email and password.' });
@@ -234,6 +236,7 @@ export function createMarketplaceRouter({ pool, admin }) {
 
   // Super-admin bootstrap is available only with the existing server-side ADMIN_TOKEN.
   router.post('/admin/bootstrap-super-admin', admin, wrap(async (req, res) => {
+    if (Buffer.byteLength(process.env.MARKETPLACE_AUTH_SECRET || '') < 32) return res.status(503).json({ error: 'Marketplace authentication is not configured.' });
     const fullName = String(req.body?.fullName || '').trim(), email = String(req.body?.email || '').trim().toLowerCase(), password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (fullName.length < 2 || fullName.length > 120 || !emailPattern.test(email) || password.length < 14 || password.length > 72) return res.status(400).json({ error:'Provide a valid name, email and password of 14–72 characters.' });
     const exists = Number((await pool.query("SELECT COUNT(*)::int AS n FROM public.marketplace_users WHERE role='super_admin'")).rows[0].n);
