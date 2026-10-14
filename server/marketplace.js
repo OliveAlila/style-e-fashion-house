@@ -45,7 +45,8 @@ function amountInteger(value, label, min = 0) {
   return n;
 }
 
-export function createMarketplaceRouter({ pool }) {\n  // Public vendor directory and published reviews only.
+export function createMarketplaceRouter({ pool }) {
+  // Public vendor directory and published reviews only.
   router.get('/vendors', wrap(async (_req, res) => {
     const result = await pool.query(`
       SELECT v.id, v.store_name, v.slug, v.description, v.logo_url,
