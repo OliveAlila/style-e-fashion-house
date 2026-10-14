@@ -141,7 +141,13 @@ app.post('/api/checkout',async(req,res,next)=>{try{
    // The seller subaccount must be active and its percentage_charge must be configured in Paystack.
    splitPayload.subaccount=vendor.paystack_subaccount_code;
  }else if(vendorIds.length>1){
-   return res.status(409).json({error:'This cart contains multiple sellers. Configure a Paystack split group and split_code for these seller accounts before checkout.'});
+   const stores=(await pool.query("SELECT id,paystack_split_code FROM public.vendor_stores WHERE id=ANY($1::bigint[]) AND status='approved'",[vendorIds])).rows;
+   if(stores.length!==vendorIds.length||stores.some(store=>!store.paystack_split_code)) {
+     return res.status(409).json({error:'Your cart contains multiple sellers. At least one seller does not have a Paystack split group configured.'});
+   }
+   const splitCodes=[...new Set(stores.map(store=>store.paystack_split_code))];
+   if(splitCodes.length!==1) return res.status(409).json({error:'These sellers do not share one Paystack split group. Configure the same split group for all sellers in the cart.'});
+   splitPayload.split_code=splitCodes[0];
  }
  const response=await fetch('https://api.paystack.co/transaction/initialize',{method:'POST',headers:{Authorization:`Bearer ${process.env.PAYSTACK_SECRET_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({email:customer.email,amount:total*100,currency:'KES',reference,callback_url:`${process.env.CLIENT_URL}/payment-return`,metadata:{order_reference:reference,customer_name:customer.name},...splitPayload})});
  const payload=await response.json();if(!response.ok||!payload.status)throw new Error(payload.message||'Could not initialize Paystack checkout.');res.status(201).json({order,subtotal,deliveryFee:fee,total,checkoutUrl:payload.data.authorization_url});
