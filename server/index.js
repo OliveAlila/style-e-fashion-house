@@ -142,10 +142,10 @@ app.post('/api/checkout',async(req,res,next)=>{try{
        }
        const net=gross-commission;
        await client.query(`
-         INSERT INTO public.vendor_order_items(order_id,vendor_id,product_id,product_name,quantity,unit_price,line_total,commission_amount,vendor_net_amount,fulfilment_status)
-         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'awaiting_payment')
-         ON CONFLICT(order_id,product_id) DO NOTHING
-       `,[orderRow.rows[0].id,row.vendor_id,line.productId,line.name,line.quantity,line.unitPrice,gross,commission,net]);
+         INSERT INTO public.vendor_order_items(order_id,vendor_id,product_id,product_name,size,color,quantity,unit_price,line_total,commission_amount,vendor_net_amount,fulfilment_status)
+         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'awaiting_payment')
+         ON CONFLICT(order_id,product_id,size,color) DO NOTHING
+       `,[orderRow.rows[0].id,productRow.vendor_id,line.productId,line.name,line.size,line.color,line.quantity,line.unitPrice,gross,commission,net]);
        const sum=groups.get(Number(row.vendor_id))||{gross:0,commission:0,net:0};
        sum.gross+=gross;sum.commission+=commission;sum.net+=net;groups.set(Number(row.vendor_id),sum);
      }
