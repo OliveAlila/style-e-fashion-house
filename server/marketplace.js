@@ -23,18 +23,79 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
-// Vendor access remains fail-closed until account-bound authentication is installed.
-// Never accept an email or vendor ID in a request as proof of vendor identity.
-function requireVendorIdentity(req, res, next) {
-  const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer\\s+/i, ''));
-  const configured = Buffer.from(process.env.VENDOR_ACCESS_TOKEN || '');
-  if (!configured.length || supplied.length !== configured.length || !crypto.timingSafeEqual(supplied, configured)) {
-    return res.status(401).json({ error: 'Vendor authorization required.' });
+function sessionSecret() {
+  const secret = process.env.MARKETPLACE_SESSION_SECRET || '';
+  if (secret.length < 32) {
+    const error = new Error('MARKETPLACE_SESSION_SECRET must be configured with at least 32 characters.');
+    error.status = 503;
+    throw error;
   }
-  return res.status(501).json({
-    error: 'Individual vendor sign-in is not configured. Vendor data and write actions are disabled until account-bound authentication is installed.'
-  });
+  return secret;
 }
+
+function signVendorSession(userId, vendorId) {
+  const secret = sessionSecret();
+  const payload = Buffer.from(JSON.stringify({
+    sub: Number(userId),
+    vendor: Number(vendorId),
+    role: 'vendor',
+    exp: Math.floor(Date.now() / 1000) + 6 * 60 * 60
+  })).toString('base64url');
+  const signature = crypto.createHmac('sha256', secret).update(payload).digest('base64url');
+  return payload + '.' + signature;
+}
+
+function verifyVendorSession(token) {
+  const [payload, signature, extra] = String(token || '').split('.');
+  if (!payload || !signature || extra) return null;
+  let secret;
+  try { secret = sessionSecret(); } catch { return null; }
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest();
+  let provided;
+  try { provided = Buffer.from(signature, 'base64url'); } catch { return null; }
+  if (provided.length !== expected.length || !crypto.timingSafeEqual(provided, expected)) return null;
+  try {
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (claims.role !== 'vendor' || !Number.isSafeInteger(claims.sub) || !Number.isSafeInteger(claims.vendor) || claims.exp < Math.floor(Date.now() / 1000)) return null;
+    return claims;
+  } catch { return null; }
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, 64);
+  return 'scrypt$' + salt.toString('hex') + '$' + hash.toString('hex');
+}
+
+function verifyPassword(password, encoded) {
+  if (typeof encoded !== 'string') return false;
+  const [scheme, saltHex, hashHex] = encoded.split('$');
+  if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
+  try {
+    const actual = crypto.scryptSync(password, Buffer.from(saltHex, 'hex'), 64);
+    const expected = Buffer.from(hashHex, 'hex');
+    return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+  } catch { return false; }
+}
+
+async function requireVendorIdentity(req, res, next) {
+  const token = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '');
+  const claims = verifyVendorSession(token);
+  if (!claims) return res.status(401).json({ error: 'Sign in with your vendor account to continue.' });
+  try {
+    const result = await req.app.locals.marketplacePool.query(`
+      SELECT v.id AS vendor_id, v.user_id, v.store_name, v.slug
+      FROM public.vendors v
+      JOIN public.marketplace_users u ON u.id=v.user_id
+      WHERE v.id=$1 AND v.user_id=$2 AND u.role='vendor' AND u.status='active'
+        AND v.verification_status='approved'
+    `, [claims.vendor, claims.sub]);
+    if (!result.rowCount) return res.status(403).json({ error: 'Your vendor account is not active or approved.' });
+    req.vendor = result.rows[0];
+    return next();
+  } catch (error) { return next(error); }
+}
+
 function amountInteger(value, label, min = 0) {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n < min) {
@@ -45,7 +106,7 @@ function amountInteger(value, label, min = 0) {
   return n;
 }
 
-export function createMarketplaceRouter({ pool }) {
+export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, next) => { req.app.locals.marketplacePool = pool; next(); });
   // Public vendor directory and published reviews only.
   router.get('/vendors', wrap(async (_req, res) => {
     const result = await pool.query(`
