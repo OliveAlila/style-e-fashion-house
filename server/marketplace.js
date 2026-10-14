@@ -73,6 +73,20 @@ export function createMarketplaceRouter({ pool, admin }) {
     req.vendorStore = store;
     next();
   });
+  // Issue a short-lived, vendor-authenticated signature for direct browser-to-Cloudinary uploads.
+  // This mirrors the working admin upload flow without exposing the Cloudinary API secret.
+  router.post('/vendor/uploads/sign', auth, allow('vendor'), approvedVendor, wrap(async (req, res) => {
+    const { CLOUDINARY_CLOUD_NAME: cloudName, CLOUDINARY_API_KEY: apiKey, CLOUDINARY_API_SECRET: apiSecret } = process.env;
+    if (!cloudName || !apiKey || !apiSecret) {
+      return res.status(503).json({ error: 'Cloudinary uploads are not configured on the server.' });
+    }
+    const timestamp = Math.floor(Date.now() / 1000);
+    const folder = 'style-e-fashion-house/products';
+    const toSign = `folder=${folder}&timestamp=${timestamp}`;
+    const signature = crypto.createHash('sha1').update(toSign + apiSecret).digest('hex');
+    return res.json({ cloud_name: cloudName, api_key: apiKey, timestamp, folder, signature });
+  }));
+
   router.post('/vendor/upload-image', auth, allow('vendor'), approvedVendor, wrap(async (req, res) => {
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
