@@ -309,3 +309,13 @@ Payout requests reserve a specific amount against ledger lines to prevent the sa
 ### Database migration
 
 On backend startup, `server/migrations/002_multi_vendor_foundation.sql` runs after the existing admin migration. It adds marketplace accounts, vendor stores, commission rules, vendor order lines, payout records/allocations, review records, and a nullable vendor owner on products. Take a production database backup before deploying any schema change and test this branch against a staging database first.
+
+
+## Automatic Paystack settlement prerequisites
+
+- `PAYSTACK_SECRET_KEY` remains on Render only and must belong to the same Paystack merchant account that owns the vendor subaccounts/split.
+- `MARKETPLACE_AUTH_SECRET` remains on Render only, at least 32 random characters.
+- Each approved vendor must have a Paystack subaccount created and verified in the Paystack Dashboard/API. Save the exact `ACCT_…` code in Marketplace Admin. Configure the subaccount's platform/vendor percentage and fee bearer in Paystack.
+- For orders containing multiple vendors, create a Paystack split group containing all participating subaccounts and set the split group's share formula. The app must pass that `SPL_…` split code to transaction initialization. One split group only covers the vendors included in that group; arbitrary carts with sellers that aren't in the configured group must not proceed.
+- The current fix branch safely enables a single-seller subaccount transaction. It deliberately rejects multi-seller carts until the matching split group is configured and selected. Do not enable live multi-vendor checkout until staging payment tests verify platform commission, vendor settlements, failed payments, refunds and reconciliation.
+- Keep `VITE_API_URL` in Vercel pointing to the Render API URL with `/api`. Do not put `PAYSTACK_SECRET_KEY`, `ADMIN_TOKEN`, or `MARKETPLACE_AUTH_SECRET` in Vercel.
