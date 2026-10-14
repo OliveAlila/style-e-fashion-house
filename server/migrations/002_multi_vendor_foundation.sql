@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS public.vendor_order_lines (
   vendor_store_id BIGINT NOT NULL REFERENCES public.vendor_stores(id) ON DELETE RESTRICT,
   product_id INTEGER NOT NULL REFERENCES public.products(id) ON DELETE RESTRICT,
   product_name TEXT NOT NULL,
+  variant_key TEXT NOT NULL DEFAULT '',
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price INTEGER NOT NULL CHECK (unit_price >= 0),
   line_subtotal INTEGER NOT NULL CHECK (line_subtotal >= 0),
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS public.vendor_order_lines (
   vendor_net_amount INTEGER NOT NULL DEFAULT 0 CHECK (vendor_net_amount >= 0),
   payout_status TEXT NOT NULL DEFAULT 'pending' CHECK (payout_status IN ('pending','eligible','processing','paid','failed','reversed')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(order_id, product_id)
+  UNIQUE(order_id, product_id, variant_key)
 );
 
 CREATE TABLE IF NOT EXISTS public.vendor_payouts (
@@ -106,6 +107,7 @@ CREATE INDEX IF NOT EXISTS vendor_stores_status_idx ON public.vendor_stores(stat
 CREATE INDEX IF NOT EXISTS vendor_order_lines_vendor_idx ON public.vendor_order_lines(vendor_store_id, payout_status, created_at DESC);
 CREATE INDEX IF NOT EXISTS vendor_payouts_vendor_idx ON public.vendor_payouts(vendor_store_id, status, requested_at DESC);
 CREATE INDEX IF NOT EXISTS vendor_reviews_store_idx ON public.vendor_reviews(vendor_store_id, status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS vendor_store_reviews_once_idx ON public.vendor_reviews(buyer_user_id, order_id, vendor_store_id) WHERE product_id IS NULL;
 
 -- Default platform commission: changeable by the super admin through the API.
 INSERT INTO public.commission_rules(name, calculation_type, percentage, priority, active)
