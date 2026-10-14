@@ -288,11 +288,15 @@ export function createMarketplaceRouter({ pool, admin }) {
       if (!payout) { await client.query('ROLLBACK'); return res.status(404).json({error:'Payout not found.'}); }
       if (payout.status === 'paid') { await client.query('ROLLBACK'); return res.status(409).json({error:'Paid payouts cannot be changed.'}); }
       if (status === 'paid') {
+        await client.query("UPDATE public.vendor_payouts SET status='paid',provider_reference=$1,processed_at=NOW() WHERE id=$2", [String(req.body.providerReference).trim(), payout.id]);
         await client.query("UPDATE public.vendor_order_lines l SET payout_status='paid' WHERE l.id IN (SELECT a.vendor_order_line_id FROM public.vendor_payout_allocations a WHERE a.payout_id=$1) AND (SELECT COALESCE(SUM(a2.amount),0) FROM public.vendor_payout_allocations a2 JOIN public.vendor_payouts p2 ON p2.id=a2.payout_id WHERE a2.vendor_order_line_id=l.id AND p2.status IN ('pending','processing','paid')) >= l.vendor_net_amount", [payout.id]);
-      } else if (status === 'failed' || status === 'cancelled') {
-        await client.query("UPDATE public.vendor_order_lines l SET payout_status='eligible' WHERE l.id IN (SELECT a.vendor_order_line_id FROM public.vendor_payout_allocations a WHERE a.payout_id=$1) AND l.payout_status='paid' AND (SELECT COALESCE(SUM(a2.amount),0) FROM public.vendor_payout_allocations a2 JOIN public.vendor_payouts p2 ON p2.id=a2.payout_id WHERE a2.vendor_order_line_id=l.id AND p2.status IN ('pending','processing','paid')) < l.vendor_net_amount", [payout.id]);
+      } else {
+        await client.query("UPDATE public.vendor_payouts SET status=$1,failure_reason=$2,processed_at=CASE WHEN $1 IN ('failed','cancelled') THEN NOW() ELSE processed_at END WHERE id=$3", [status, status==='failed'?String(req.body?.failureReason||'Payment failed').slice(0,500):null,payout.id]);
+        if (status === 'failed' || status === 'cancelled') {
+          await client.query("UPDATE public.vendor_order_lines l SET payout_status='eligible' WHERE l.id IN (SELECT a.vendor_order_line_id FROM public.vendor_payout_allocations a WHERE a.payout_id=$1) AND l.payout_status='paid' AND (SELECT COALESCE(SUM(a2.amount),0) FROM public.vendor_payout_allocations a2 JOIN public.vendor_payouts p2 ON p2.id=a2.payout_id WHERE a2.vendor_order_line_id=l.id AND p2.status IN ('pending','processing','paid')) < l.vendor_net_amount", [payout.id]);
+        }
       }
-      const updated=(await client.query("UPDATE public.vendor_payouts SET status=$1,provider_reference=COALESCE($2,provider_reference),failure_reason=$3,processed_at=CASE WHEN $1 IN ('paid','failed','cancelled') THEN NOW() ELSE processed_at END WHERE id=$4 RETURNING id,vendor_store_id,amount,status,provider_reference,failure_reason,requested_at,processed_at", [status, status==='paid'?String(req.body.providerReference).trim():null, status==='failed'?String(req.body?.failureReason||'Payment failed').slice(0,500):null,payout.id])).rows[0];
+      const updated=(await client.query("SELECT id,vendor_store_id,amount,status,provider_reference,failure_reason,requested_at,processed_at FROM public.vendor_payouts WHERE id=$1", [payout.id])).rows[0];
       await client.query('COMMIT');
       res.json({...updated,amount:Number(updated.amount),message:status==='paid'?'Payout marked paid using the supplied external payment reference. No transfer was initiated by this endpoint.':'Payout status updated.'});
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
