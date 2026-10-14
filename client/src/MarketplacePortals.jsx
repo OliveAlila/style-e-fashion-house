@@ -87,14 +87,31 @@ export function VendorPortal({ API, money }) {
     try {
       let imageUrls;
       if (imageFile) {
-        const imageData = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = () => reject(new Error('Could not read that image. Please try another file.'));
-          reader.readAsDataURL(imageFile);
-        });
-        const uploaded = await api('/vendor/upload-image', { method:'POST', body:JSON.stringify({image:imageData}) });
-        imageUrls = [uploaded.url];
+        // Request a signed upload from our API, then send the file directly to Cloudinary.
+        // This is the same upload flow already used by the working admin dashboard.
+        const signed = await api('/vendor/uploads/sign', { method:'POST', body:JSON.stringify({}) });
+        if (!signed.cloud_name || !signed.api_key || !signed.timestamp || !signed.folder || !signed.signature) {
+          throw new Error('The server returned incomplete Cloudinary upload details. Check the backend configuration.');
+        }
+        const payload = new FormData();
+        payload.append('file', imageFile);
+        payload.append('api_key', signed.api_key);
+        payload.append('timestamp', String(signed.timestamp));
+        payload.append('folder', signed.folder);
+        payload.append('signature', signed.signature);
+        let response, result;
+        try {
+          response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloud_name)}/image/upload`, {
+            method:'POST', body:payload
+          });
+          result = await response.json().catch(() => ({}));
+        } catch {
+          throw new Error('Could not reach Cloudinary. Check your internet connection and try again.');
+        }
+        if (!response.ok || !result.secure_url) {
+          throw new Error(result.error?.message || `Cloudinary upload failed (HTTP ${response.status}).`);
+        }
+        imageUrls = [result.secure_url];
       } else {
         imageUrls = product.images.split(',').map(x=>x.trim()).filter(Boolean);
         if (imageUrls.some(url => !/^https:\/\//i.test(url))) throw new Error('Use HTTPS image URLs only.');
