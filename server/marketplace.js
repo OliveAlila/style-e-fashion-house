@@ -339,16 +339,20 @@ export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, ne
       (percentage!==null&&(!Number.isFinite(percentage)||percentage<0||percentage>100))||
       (flatFee!==null&&(!Number.isSafeInteger(flatFee)||flatFee<0))||
       !Number.isSafeInteger(priority)||priority<0||
-      (scope==='vendor'&&!Number.isSafeInteger(Number(b.vendor_id)))||
+      (scope==='vendor'&&(!Number.isSafeInteger(Number(b.vendor_id))||Number(b.vendor_id)<1))||
       (scope==='category'&&!String(b.category||'').trim())||
       (feeType==='tiered'&&(!tiers.length||tiers.some(t=>!Number.isFinite(Number(t.up_to))||Number(t.up_to)<=0||!Number.isFinite(Number(t.percentage))||Number(t.percentage)<0||Number(t.percentage)>100)))) {
       return res.status(400).json({error:'Invalid commission rule. Check name, scope, fee type, rate, and tiers.'});
+    }
+    if(feeType==='tiered'){
+      const sorted=tiers.map(t=>({up_to:Number(t.up_to),percentage:Number(t.percentage)})).sort((a,b)=>a.up_to-b.up_to);
+      if(new Set(sorted.map(t=>t.up_to)).size!==sorted.length)return res.status(400).json({error:'Tier thresholds must be unique.'});
     }
     const result=await pool.query(`
       INSERT INTO public.commission_rules(name,scope,vendor_id,category,fee_type,percentage,flat_fee,tiers,priority,active,starts_at,ends_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12) RETURNING *
     `,[name,scope,scope==='vendor'?Number(b.vendor_id):null,scope==='category'?String(b.category).trim():null,feeType,
-      feeType==='percentage'?percentage:null,feeType==='flat'?flatFee:null,JSON.stringify(tiers),priority,b.active!==false,b.starts_at||null,b.ends_at||null]);
+      feeType==='percentage'?percentage:null,feeType==='flat'?flatFee:null,JSON.stringify(feeType==='tiered'?tiers.map(t=>({up_to:Number(t.up_to),percentage:Number(t.percentage)})):[]),priority,b.active!==false,b.starts_at||null,b.ends_at||null]);
     res.status(201).json(result.rows[0]);
   }));
 
