@@ -19,3 +19,16 @@
 /* Admin product photo uploads */
 .admin-upload-title{display:flex;align-items:center;gap:8px;color:var(--dark)!important;font-size:12px!important}.admin-upload-label{display:flex;flex-direction:column;gap:9px;font-size:12px;color:var(--dark)}.admin-upload-label span{font-size:11px;color:var(--muted);line-height:1.6}.admin-upload-label input[type=file]{padding:12px;background:#fff;border:1px dashed #bdb3a1;cursor:pointer}.admin-image-preview{display:flex;align-items:center;gap:10px;min-width:0;padding:8px;border:1px solid var(--line);background:#fff}.admin-image-preview img{width:66px;height:78px;object-fit:cover;flex-shrink:0}.admin-image-preview button{border:1px solid var(--line);background:#fff;padding:7px 10px;font-size:10px}.admin-image-preview button:hover{background:#f2eee6}.admin-actions button:disabled,.admin-upload-label input:disabled{opacity:.55;cursor:wait}
 @media(max-width:680px){.admin-image-preview img{width:56px;height:68px}}
+
+/* Seller product image upload: keep the control visible and usable at every viewport width. */
+.admin-fields .vendor-upload-control{display:block!important;grid-column:1/-1!important;width:100%;min-width:0;visibility:visible!important}
+.vendor-upload-heading{display:flex!important;flex-direction:column!important;align-items:flex-start;gap:5px!important;margin:0 0 10px;color:var(--dark)!important;font-size:13px!important;font-weight:600;line-height:1.5}
+.vendor-upload-heading span{font-size:11px;font-weight:400;color:var(--muted)}
+.vendor-upload-dropzone{display:block!important;width:100%;min-width:0;padding:16px;border:1px dashed #a99e8c;border-radius:8px;background:#fffdf9;visibility:visible!important}
+.vendor-product-file-input{display:block!important;position:static!important;width:100%!important;max-width:100%;height:auto!important;min-height:46px;padding:8px!important;margin:0!important;opacity:1!important;visibility:visible!important;clip:auto!important;overflow:visible!important;border:1px solid #cfc5b5!important;background:#fff!important;color:var(--dark)!important;font-size:12px!important;cursor:pointer}
+.vendor-product-file-input::file-selector-button{display:inline-block;margin:0 12px 0 0;padding:10px 14px;border:0;border-radius:4px;background:#242520;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+.vendor-upload-help{margin:10px 0 0;font-size:11px;line-height:1.6;color:var(--muted)}
+.vendor-upload-url-heading{margin-top:18px}
+.vendor-image-preview{display:flex!important;visibility:visible!important;max-width:100%;overflow-wrap:anywhere}
+.vendor-image-preview img{display:block!important;max-width:100%;height:auto}
+@media(max-width:680px){.admin-fields .vendor-upload-control{grid-column:1/-1!important}.vendor-upload-dropzone{padding:12px}.vendor-product-file-input{font-size:11px!important}.vendor-product-file-input::file-selector-button{padding:9px 10px;margin-right:8px}}
