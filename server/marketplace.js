@@ -23,12 +23,16 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
-// Vendor identity is issued by the server-side session integration. Until a proper
-// account/session provider is configured, vendor routes deliberately do not accept
-// vendor IDs or email addresses supplied by the caller as proof of identity.
+// Vendor access remains fail-closed until account-bound authentication is installed.
+// Never accept an email or vendor ID in a request as proof of vendor identity.
 function requireVendorIdentity(req, res, next) {
+  const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer\\s+/i, ''));
+  const configured = Buffer.from(process.env.VENDOR_ACCESS_TOKEN || '');
+  if (!configured.length || supplied.length !== configured.length || !crypto.timingSafeEqual(supplied, configured)) {
+    return res.status(401).json({ error: 'Vendor authorization required.' });
+  }
   return res.status(501).json({
-    error: 'Vendor sign-in is not configured yet. Configure a verified account/session provider before enabling vendor access.'
+    error: 'Individual vendor sessions are not configured yet. Vendor data and write actions remain disabled until account-level authentication is installed.'
   });
 }
 
