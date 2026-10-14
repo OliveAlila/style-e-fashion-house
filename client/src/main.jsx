@@ -2,6 +2,7 @@
 import{createRoot}from'react-dom/client';
 import{Search,ShoppingBag,Menu,X,ArrowUpRight,Plus,Minus,ArrowRight,Heart,CheckCircle2,PackageCheck,Instagram,ChevronDown,SlidersHorizontal,UploadCloud}from'lucide-react';
 import'./styles.css';
+import'./marketplace.css';
 import logo from './style-logo.png';
 const API=(import.meta.env.VITE_API_URL||'http://localhost:4000/api').replace(/\/$/,'');
 const fallback=[
