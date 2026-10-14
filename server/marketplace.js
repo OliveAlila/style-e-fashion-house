@@ -92,6 +92,19 @@ export function createMarketplaceRouter({ pool }) {
   }));
 
   // Public commission summary is not exposed; amounts and recipient details are private.
+  router.get('/products/:id/reviews', wrap(async (req,res)=>{
+    const productId=Number(req.params.id);
+    if(!Number.isSafeInteger(productId)||productId<1)return res.status(400).json({error:'Invalid product ID.'});
+    const result=await pool.query(`
+      SELECT r.reviewer_name,r.rating,r.title,r.body,r.verified_purchase,r.created_at,v.store_name,v.slug AS vendor_slug
+      FROM public.vendor_reviews r
+      JOIN public.vendors v ON v.id=r.vendor_id
+      WHERE r.product_id=$1 AND r.status='published'
+      ORDER BY r.created_at DESC LIMIT 100
+    `,[productId]);
+    res.json(result.rows);
+  }));
+
   router.get('/vendors/:slug/reviews', wrap(async (req, res) => {
     const result = await pool.query(`
       SELECT reviewer_name,rating,title,body,verified_purchase,created_at
