@@ -19,6 +19,8 @@ export function VendorPortal({ API, money }) {
   const [product, setProduct] = useState({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
   const [payoutAmount, setPayoutAmount] = useState('');
   const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
+  const [uploadStatus, setUploadStatus] = useState('');
   const [savingProduct, setSavingProduct] = useState(false);
   const [review, setReview] = useState({orderReference:'',storeId:'',productId:'',rating:'5',title:'',body:''});
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
@@ -47,6 +49,13 @@ export function VendorPortal({ API, money }) {
   }, []);
 
   useEffect(() => { if (token) window.sessionStorage.setItem('style-marketplace-token', token); else window.sessionStorage.removeItem('style-marketplace-token'); }, [token]);
+
+  useEffect(() => {
+    if (!imageFile) { setImagePreview(''); return undefined; }
+    const previewUrl = URL.createObjectURL(imageFile);
+    setImagePreview(previewUrl);
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [imageFile]);
 
   async function authenticate(event) {
     event.preventDefault();
@@ -97,7 +106,10 @@ export function VendorPortal({ API, money }) {
     if (imageFile && product.images.trim()) { setMessage('Choose either a device upload or an image URL, not both.'); return; }
     if (imageFile && imageFile.size > 5 * 1024 * 1024) { setMessage('Choose an image smaller than 5 MB.'); return; }
 
+    if (imageFile && !['image/jpeg','image/png','image/webp'].includes(imageFile.type)) { setMessage('Choose a JPG, PNG, or WebP image file.'); return; }
+
     setSavingProduct(true);
+    setUploadStatus(imageFile ? 'Preparing secure image upload…' : 'Validating image URL…');
     try {
       let imageUrls;
       if (imageFile) {
@@ -111,15 +123,19 @@ export function VendorPortal({ API, money }) {
         payload.append('timestamp', String(signed.timestamp));
         payload.append('folder', signed.folder);
         payload.append('signature', signed.signature);
+        setUploadStatus('Uploading image to Cloudinary…');
         let response, result;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 45000);
         try {
           response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloud_name)}/image/upload`, {
-            method:'POST', body:payload
+            method:'POST', body:payload, signal:controller.signal
           });
           result = await response.json().catch(() => ({}));
-        } catch {
+        } catch (error) {
+          if (error?.name === 'AbortError') throw new Error('Cloudinary did not finish the upload within 45 seconds. Try a smaller image or check your connection.');
           throw new Error('Could not reach Cloudinary. Check your internet connection and try again.');
-        }
+        } finally { clearTimeout(timeoutId); }
         if (!response.ok || !result.secure_url) {
           throw new Error(result.error?.message || `Cloudinary upload failed (HTTP ${response.status}).`);
         }
@@ -129,6 +145,7 @@ export function VendorPortal({ API, money }) {
         if (imageUrls.some(url => !/^https:\/\//i.test(url))) throw new Error('Use HTTPS image URLs only.');
       }
 
+      setUploadStatus('Image uploaded. Saving product details…');
       const body = {
         ...product,
         name: product.name.trim(),
@@ -142,6 +159,7 @@ export function VendorPortal({ API, money }) {
       await api('/vendor/products', { method:'POST', body:JSON.stringify(body) });
       setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
       setImageFile(null);
+      setUploadStatus('');
       const fileInput = document.getElementById('vendor-product-image');
       if (fileInput) fileInput.value = '';
       await load();
@@ -150,6 +168,7 @@ export function VendorPortal({ API, money }) {
       setMessage(error.message || 'Could not add the product. Please try again.');
     } finally {
       setSavingProduct(false);
+      setUploadStatus('');
     }
   }
 
@@ -218,7 +237,9 @@ export function VendorPortal({ API, money }) {
           <div className="wide">
             <label htmlFor="vendor-product-image">Product image file (JPG, PNG or WebP; max 5 MB)</label>
             <input id="vendor-product-image" type="file" accept="image/jpeg,image/png,image/webp" onChange={e=>{const file=e.target.files?.[0]||null;setImageFile(file);if(file)setProduct({...product,images:''});}} />
-            {imageFile && <p className="admin-message">Selected file: {imageFile.name}</p>}
+            {imageFile && <p className="admin-message">Selected file: {imageFile.name} ({(imageFile.size / 1024 / 1024).toFixed(2)} MB)</p>}
+            {(imagePreview || product.images.trim()) && <div className="vendor-image-preview" style={{marginTop:12,display:'flex',flexDirection:'column',alignItems:'flex-start',gap:8}}><span>Image preview</span><img src={imagePreview || product.images.trim().split(',')[0].trim()} alt="Product preview" onError={e=>{e.currentTarget.style.display='none';setMessage('The image preview could not load. Check the image URL or choose another file.');}} onLoad={e=>{e.currentTarget.style.display='block';}} style={{display:'block',width:'min(100%, 260px)',maxHeight:260,objectFit:'contain',border:'1px solid #ddd',borderRadius:8,background:'#fff'}} /></div>}
+            {uploadStatus && <p className="admin-message" role="status">{uploadStatus}</p>}
             <label htmlFor="vendor-product-image-url">Or image URL(s), HTTPS only, comma separated</label>
             <input id="vendor-product-image-url" placeholder="https://example.com/product.jpg" value={product.images} onChange={e=>{setProduct({...product,images:e.target.value});if(e.target.value.trim())setImageFile(null);}} />
             <p className="admin-message">Required: choose a file from your device OR enter an image URL. Use only one method.</p>
