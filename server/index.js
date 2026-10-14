@@ -138,10 +138,10 @@ app.post('/api/checkout',async(req,res,next)=>{try{
  if(vendorIds.length===1){
    const vendor=(await pool.query("SELECT paystack_subaccount_code FROM public.vendor_stores WHERE id=$1 AND status='approved'",[vendorIds[0]])).rows[0];
    if(!vendor?.paystack_subaccount_code) return res.status(503).json({error:'This seller is not configured for automatic Paystack settlement yet. Checkout has not been initialized.'});
-   // Paystack subaccount percentage_charge is configured for the vendor/platform share.
+   // The seller subaccount must be active and its percentage_charge must be configured in Paystack.
    splitPayload.subaccount=vendor.paystack_subaccount_code;
  }else if(vendorIds.length>1){
-   return res.status(409).json({error:'Your cart contains products from multiple sellers. Multi-seller Paystack split group setup is required before this checkout can proceed.'});
+   return res.status(409).json({error:'This cart contains multiple sellers. Configure a Paystack split group and split_code for these seller accounts before checkout.'});
  }
  const response=await fetch('https://api.paystack.co/transaction/initialize',{method:'POST',headers:{Authorization:`Bearer ${process.env.PAYSTACK_SECRET_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({email:customer.email,amount:total*100,currency:'KES',reference,callback_url:`${process.env.CLIENT_URL}/payment-return`,metadata:{order_reference:reference,customer_name:customer.name},...splitPayload})});
  const payload=await response.json();if(!response.ok||!payload.status)throw new Error(payload.message||'Could not initialize Paystack checkout.');res.status(201).json({order,subtotal,deliveryFee:fee,total,checkoutUrl:payload.data.authorization_url});
