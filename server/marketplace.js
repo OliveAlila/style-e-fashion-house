@@ -248,11 +248,18 @@ export function createMarketplaceRouter({ pool, admin }) {
     if (Buffer.byteLength(process.env.MARKETPLACE_AUTH_SECRET || '') < 32) return res.status(503).json({ error: 'Marketplace authentication is not configured.' });
     const fullName = String(req.body?.fullName || '').trim(), email = String(req.body?.email || '').trim().toLowerCase(), password = typeof req.body?.password === 'string' ? req.body.password : '';
     if (fullName.length < 2 || fullName.length > 120 || !emailPattern.test(email) || password.length < 14 || password.length > 72) return res.status(400).json({ error:'Provide a valid name, email and password of 14–72 characters.' });
-    const exists = Number((await pool.query("SELECT COUNT(*)::int AS n FROM public.marketplace_users WHERE role='super_admin'")).rows[0].n);
-    if (exists) return res.status(409).json({ error:'A super admin account already exists.' });
-    const hash = await hashPassword(password);
-    const user = (await pool.query("INSERT INTO public.marketplace_users(full_name,email,password_hash,role,status) VALUES($1,$2,$3,'super_admin','active') RETURNING id,full_name,email,role,status", [fullName,email,hash])).rows[0];
-    res.status(201).json({ user:safeUser(user), message:'Super admin account created. Sign in through the marketplace login.' });
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('style-marketplace-super-admin-bootstrap'))");
+      const exists = Number((await client.query("SELECT COUNT(*)::int AS n FROM public.marketplace_users WHERE role='super_admin'")).rows[0].n);
+      if (exists) { await client.query('ROLLBACK'); return res.status(409).json({ error:'A super admin account already exists.' }); }
+      const hash = await hashPassword(password);
+      const user = (await client.query("INSERT INTO public.marketplace_users(full_name,email,password_hash,role,status) VALUES($1,$2,$3,'super_admin','active') RETURNING id,full_name,email,role,status", [fullName,email,hash])).rows[0];
+      await client.query('COMMIT');
+      res.status(201).json({ user:safeUser(user), message:'Super admin account created. Sign in through the marketplace login.' });
+    } catch (error) { await client.query('ROLLBACK'); if (error.code === '23505') return res.status(409).json({error:'An account with this email already exists.'}); throw error; }
+    finally { client.release(); }
   }));
 
   router.get('/admin/vendors', auth, allow('super_admin'), wrap(async (_req, res) => {
