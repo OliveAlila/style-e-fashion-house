@@ -154,6 +154,12 @@ export function createMarketplaceRouter({ pool, admin }) {
     const reviews = (await pool.query("SELECT r.id,r.rating,r.title,r.body,r.created_at,u.full_name AS buyer_name,p.name AS product_name FROM public.vendor_reviews r JOIN public.marketplace_users u ON u.id=r.buyer_user_id LEFT JOIN public.products p ON p.id=r.product_id WHERE r.vendor_store_id=$1 AND r.status='published' ORDER BY r.created_at DESC LIMIT 100", [store.id])).rows;
     res.json(reviews);
   }));
+  router.get('/products/:id/reviews', wrap(async (req, res) => {
+    const product = (await pool.query("SELECT id,vendor_store_id FROM public.products WHERE id=$1 AND active=TRUE AND vendor_store_id IS NOT NULL", [req.params.id])).rows[0];
+    if (!product) return res.status(404).json({error:'Marketplace product not found.'});
+    const reviews = (await pool.query("SELECT r.id,r.rating,r.title,r.body,r.created_at,u.full_name AS buyer_name FROM public.vendor_reviews r JOIN public.marketplace_users u ON u.id=r.buyer_user_id WHERE r.product_id=$1 AND r.vendor_store_id=$2 AND r.status='published' ORDER BY r.created_at DESC LIMIT 100", [product.id,product.vendor_store_id])).rows;
+    res.json(reviews);
+  }));
 
   router.get('/vendor/dashboard', auth, allow('vendor'), approvedVendor, wrap(async (req, res) => {
     const storeId = req.vendorStore.id;
