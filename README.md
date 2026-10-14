@@ -266,3 +266,21 @@ Confirm Paystack merchant eligibility and the payment channels available to your
 ## Admin dashboard
 
 The initial responsive admin dashboard and additive schema migration are documented in [ADMIN_SETUP.md](./ADMIN_SETUP.md). Review the documented production limitations before deployment; the existing checkout still needs discount, coupon, configurable-delivery, and variant-inventory integration before those features should be used for live orders.
+
+
+## Multi-vendor marketplace (feature branch)
+
+The multi-vendor marketplace foundation is being developed separately from `main` on `feature/multi-vendor-marketplace`.
+
+### Included in this branch
+- Additive PostgreSQL migration for vendor applications, marketplace roles and store profiles, product ownership, commission rules, per-vendor order allocations, earning records, payout records, reviews, and an audit log.
+- `/api/marketplace` routes for public approved-vendor directories/products/reviews, vendor applications, Super Admin vendor/application/commission/review/payout management, and vendor dashboard endpoint contracts.
+- Public seller application page at `/sell`, seller workspace shell at `/vendor`, and marketplace operations page at `/marketplace-admin`.
+- At checkout, products already assigned to a vendor are snapshotted into vendor-order allocation rows with the applicable commission estimate. Earnings become available only after the existing Paystack verifier marks the order paid.
+
+### Deployment and launch limitations
+- Review this branch before merging. This MVP does **not** yet provide individual vendor account creation/login, session-based RBAC, or fully enabled vendor dashboard reads/writes; seller endpoints deliberately fail closed until authenticated vendor sessions are integrated. Do not share a common token among vendors.
+- Legacy products remain unassigned (their `vendor_id` is NULL) and continue to behave as existing STYLE-owned catalogue items.
+- Paystack checkout remains a single collection transaction. No automatic split-transfer or payout is executed by this branch. Configure and verify a supported marketplace/transfer arrangement, recipient onboarding and reconciliation workflow before enabling seller cash-out.
+- Public reviews remain pending moderation and are not automatically certified as verified purchases. End-to-end purchase proof and anti-abuse controls still need implementation before launch.
+- The server applies `server/migrations/002_multi_vendor.sql` during startup by reading and running the additive migration. Back up the PostgreSQL database before deploying a reviewed build, and test on staging first.
