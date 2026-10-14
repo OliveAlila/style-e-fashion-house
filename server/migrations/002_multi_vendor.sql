@@ -7,9 +7,17 @@ CREATE TABLE IF NOT EXISTS public.marketplace_users (
   display_name TEXT NOT NULL,
   role TEXT NOT NULL CHECK (role IN ('super_admin','vendor','buyer')),
   status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('pending','active','suspended','rejected')),
+  password_hash TEXT,
+  setup_token_hash TEXT,
+  setup_token_expires_at TIMESTAMPTZ,
+  last_login_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE public.marketplace_users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+ALTER TABLE public.marketplace_users ADD COLUMN IF NOT EXISTS setup_token_hash TEXT;
+ALTER TABLE public.marketplace_users ADD COLUMN IF NOT EXISTS setup_token_expires_at TIMESTAMPTZ;
+ALTER TABLE public.marketplace_users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ;
 
 CREATE TABLE IF NOT EXISTS public.vendors (
   id BIGSERIAL PRIMARY KEY,
