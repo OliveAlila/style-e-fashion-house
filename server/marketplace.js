@@ -26,30 +26,29 @@ function requireSuperAdmin(req, res, next) {
 // Vendor access remains fail-closed until account-bound authentication is installed.
 // Never accept an email or vendor ID in a request as proof of vendor identity.
 function requireVendorIdentity(req, res, next) {
-  const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer\\s+/i, ''));
+  const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
   const configured = Buffer.from(process.env.VENDOR_ACCESS_TOKEN || '');
   if (!configured.length || supplied.length !== configured.length || !crypto.timingSafeEqual(supplied, configured)) {
     return res.status(401).json({ error: 'Vendor authorization required.' });
   }
-  // A transitional single-vendor credential may only be enabled once exactly one
-  // approved, active vendor exists. Multi-vendor production requires per-user sessions.
+  // Transitional credential is safe only when exactly one active, approved vendor exists.
+  // For multiple vendors, replace with per-user sessions before enabling access.
   poolForVendorLookup().then(vendor => {
-    if (!vendor) return res.status(403).json({error:'No approved vendor is configured.'});
+    if (!vendor) return res.status(403).json({error:'No approved vendor is configured, or multiple vendors exist. Individual vendor authentication is required.'});
     req.vendor = vendor;
     next();
   }).catch(next);
 }
 async function poolForVendorLookup() {
-  const db = activePool;
-  const r = await db.query(`
+  const result = await activePool.query(\`
     SELECT v.id,v.user_id,v.store_name,v.slug
-    FROM public.vendors v JOIN public.marketplace_users u ON u.id=v.user_id
+    FROM public.vendors v
+    JOIN public.marketplace_users u ON u.id=v.user_id
     WHERE u.status='active' AND v.verification_status='approved'
     ORDER BY v.id
-  `);
-  return r.rowCount === 1 ? r.rows[0] : null;
+  \`);
+  return result.rowCount === 1 ? result.rows[0] : null;
 }
-
 function amountInteger(value, label, min = 0) {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n < min) {
