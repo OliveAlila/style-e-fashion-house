@@ -3,8 +3,7 @@ import crypto from 'node:crypto';
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;\nlet activePool = null;
-
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;\n
 function getActor(req) {
   const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
   const configured = process.env.ADMIN_TOKEN || '';
@@ -26,28 +25,14 @@ function requireSuperAdmin(req, res, next) {
 // Vendor access remains fail-closed until account-bound authentication is installed.
 // Never accept an email or vendor ID in a request as proof of vendor identity.
 function requireVendorIdentity(req, res, next) {
-  const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+  const supplied = Buffer.from((req.headers.authorization || '').replace(/^Bearer\\s+/i, ''));
   const configured = Buffer.from(process.env.VENDOR_ACCESS_TOKEN || '');
   if (!configured.length || supplied.length !== configured.length || !crypto.timingSafeEqual(supplied, configured)) {
     return res.status(401).json({ error: 'Vendor authorization required.' });
   }
-  // Transitional credential is safe only when exactly one active, approved vendor exists.
-  // For multiple vendors, replace with per-user sessions before enabling access.
-  poolForVendorLookup().then(vendor => {
-    if (!vendor) return res.status(403).json({error:'No approved vendor is configured, or multiple vendors exist. Individual vendor authentication is required.'});
-    req.vendor = vendor;
-    next();
-  }).catch(next);
-}
-async function poolForVendorLookup() {
-  const result = await activePool.query(\`
-    SELECT v.id,v.user_id,v.store_name,v.slug
-    FROM public.vendors v
-    JOIN public.marketplace_users u ON u.id=v.user_id
-    WHERE u.status='active' AND v.verification_status='approved'
-    ORDER BY v.id
-  \`);
-  return result.rowCount === 1 ? result.rows[0] : null;
+  return res.status(501).json({
+    error: 'Individual vendor sign-in is not configured. Vendor data and write actions are disabled until account-bound authentication is installed.'
+  });
 }
 function amountInteger(value, label, min = 0) {
   const n = Number(value);
@@ -59,8 +44,7 @@ function amountInteger(value, label, min = 0) {
   return n;
 }
 
-export function createMarketplaceRouter({ pool }) {\n  activePool = pool;\n  activePool = pool;
-  // Public vendor directory and published reviews only.
+export function createMarketplaceRouter({ pool }) {\n  activePool = pool;\n  // Public vendor directory and published reviews only.
   router.get('/vendors', wrap(async (_req, res) => {
     const result = await pool.query(`
       SELECT v.id, v.store_name, v.slug, v.description, v.logo_url,
