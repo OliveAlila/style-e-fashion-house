@@ -345,6 +345,17 @@ export function createMarketplaceRouter({ pool }) {\n  activePool = pool;\n  act
     }catch(error){await c.query('ROLLBACK');if(error.code==='23505')return res.status(409).json({error:'A vendor or store with this email/slug already exists.'});throw error}finally{c.release()}
   }));
 
+  router.get('/admin/earnings',requireSuperAdmin,wrap(async(_req,res)=>{
+    const result=await pool.query(`
+      SELECT e.*,o.reference AS order_reference,v.store_name
+      FROM public.vendor_earnings e
+      JOIN public.orders o ON o.id=e.order_id
+      JOIN public.vendors v ON v.id=e.vendor_id
+      ORDER BY e.created_at DESC LIMIT 500
+    `);
+    res.json(result.rows.map(row=>({...row,gross_amount:Number(row.gross_amount),commission_amount:Number(row.commission_amount),net_amount:Number(row.net_amount)})));
+  }));
+
   router.get('/admin/summary',requireSuperAdmin,wrap(async(_req,res)=>{
     const [vendors,products,orders,earnings,payouts,reviews]=await Promise.all([
       pool.query("SELECT COUNT(*)::int AS n FROM public.vendors"),
