@@ -207,7 +207,7 @@ export function VendorPortal({ API, money }) {
         <p>Your store: <b>{dashboard.store?.name}</b> · Public store slug: <code>{dashboard.store?.slug}</code></p>
       </>}
       {user.role==='vendor' && store?.status==='approved' && tab==='Products' && <>
-        <form className="admin-form" onSubmit={saveProduct} onInvalidCapture={e=>{const field=e.target;if(field?.validity?.valueMissing)setMessage(field.placeholder?\`Please complete: ${field.placeholder}.\`:'Please complete the required fields.');else if(field?.validity?.badInput)setMessage('Enter a valid value in the highlighted field.');}}><h2>Add a product</h2><div className="admin-fields">
+        <form className="admin-form" onSubmit={saveProduct} onInvalidCapture={e=>{const field=e.target;if(field?.validity?.valueMissing)setMessage(field.placeholder?`Please complete: ${field.placeholder}.`:'Please complete the required fields.');else if(field?.validity?.badInput)setMessage('Enter a valid value in the highlighted field.');}}><h2>Add a product</h2><div className="admin-fields">
           <input required placeholder="Product name" value={product.name} onChange={e=>setProduct({...product,name:e.target.value})}/>
           <select value={product.category} onChange={e=>setProduct({...product,category:e.target.value})}>{['STYLE WOMAN','STYLE MAMA','STYLE KIDS','SETS & GIFTS'].map(x=><option key={x}>{x}</option>)}</select>
           <input placeholder="Type" value={product.type} onChange={e=>setProduct({...product,type:e.target.value})}/>
