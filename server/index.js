@@ -128,8 +128,8 @@ app.post('/api/checkout',async(req,res,next)=>{try{
    }
    commission = Math.max(0, Math.min(line.lineTotal, Math.round(commission)));
    await pool.query(
-     "INSERT INTO public.vendor_order_lines(order_id,vendor_store_id,product_id,product_name,quantity,unit_price,line_subtotal,commission_rule_id,commission_amount,vendor_net_amount,payout_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending') ON CONFLICT(order_id,product_id) DO NOTHING",
-     [order.id,line.vendorStoreId,line.productId,line.name,line.quantity,line.unitPrice,line.lineTotal,rule?.id || null,commission,line.lineTotal-commission]
+     "INSERT INTO public.vendor_order_lines(order_id,vendor_store_id,product_id,product_name,variant_key,quantity,unit_price,line_subtotal,commission_rule_id,commission_amount,vendor_net_amount,payout_status) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending') ON CONFLICT(order_id,product_id,variant_key) DO NOTHING",
+     [order.id,line.vendorStoreId,line.productId,line.name,`${line.size} / ${line.color}`,line.quantity,line.unitPrice,line.lineTotal,rule?.id || null,commission,line.lineTotal-commission]
    );
  }
  if(!process.env.PAYSTACK_SECRET_KEY){return res.status(201).json({order,subtotal,deliveryFee:fee,total,checkoutUrl:null,message:'Order created in demo mode. Configure PAYSTACK_SECRET_KEY to enable payments.'});}
