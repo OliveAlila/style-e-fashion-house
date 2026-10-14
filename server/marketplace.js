@@ -208,15 +208,15 @@ export function createMarketplaceRouter({ pool }) {
     const c=await pool.connect();
     try{
       await c.query('BEGIN');
-      const result=await c.query(\`
+      const result=await c.query(`
         UPDATE public.vendors SET verification_status=$1,updated_at=NOW()
         WHERE id=$2 RETURNING id,store_name,slug,verification_status
-      \`,[status,req.params.id]);
+      `,[status,req.params.id]);
       if(!result.rowCount){await c.query('ROLLBACK');return res.status(404).json({error:'Vendor not found.'})}
-      await c.query(\`
+      await c.query(`
         INSERT INTO public.marketplace_audit_log(actor_role,action,entity_type,entity_id,details)
         VALUES('super_admin','vendor_verification_changed','vendor',$1,$2::jsonb)
-      \`,[String(req.params.id),JSON.stringify({status})]);
+      `,[String(req.params.id),JSON.stringify({status})]);
       await c.query('COMMIT');
       delete result.rows[0].user_id;
       res.json(result.rows[0]);
@@ -242,10 +242,10 @@ export function createMarketplaceRouter({ pool }) {
       (feeType==='tiered'&&(!tiers.length||tiers.some(t=>!Number.isFinite(Number(t.up_to))||Number(t.up_to)<=0||!Number.isFinite(Number(t.percentage))||Number(t.percentage)<0||Number(t.percentage)>100)))) {
       return res.status(400).json({error:'Invalid commission rule. Check name, scope, fee type, rate, and tiers.'});
     }
-    const result=await pool.query(\`
+    const result=await pool.query(`
       INSERT INTO public.commission_rules(name,scope,vendor_id,category,fee_type,percentage,flat_fee,tiers,priority,active,starts_at,ends_at)
       VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12) RETURNING *
-    \`,[name,scope,scope==='vendor'?Number(b.vendor_id):null,scope==='category'?String(b.category).trim():null,feeType,
+    `,[name,scope,scope==='vendor'?Number(b.vendor_id):null,scope==='category'?String(b.category).trim():null,feeType,
       feeType==='percentage'?percentage:null,feeType==='flat'?flatFee:null,JSON.stringify(tiers),priority,b.active!==false,b.starts_at||null,b.ends_at||null]);
     res.status(201).json(result.rows[0]);
   }));
@@ -259,10 +259,10 @@ export function createMarketplaceRouter({ pool }) {
   }));
 
   router.get('/admin/reviews',requireSuperAdmin,wrap(async(_req,res)=>{
-    const result=await pool.query(\`
+    const result=await pool.query(`
       SELECT r.*,v.store_name FROM public.vendor_reviews r JOIN public.vendors v ON v.id=r.vendor_id
       ORDER BY r.created_at DESC LIMIT 300
-    \`);
+    `);
     res.json(result.rows);
   }));
 
@@ -275,20 +275,20 @@ export function createMarketplaceRouter({ pool }) {
   }));
 
   router.get('/admin/payouts',requireSuperAdmin,wrap(async(_req,res)=>{
-    const result=await pool.query(\`
+    const result=await pool.query(`
       SELECT p.*,v.store_name,v.contact_email FROM public.vendor_payouts p
       JOIN public.vendors v ON v.id=p.vendor_id ORDER BY p.requested_at DESC LIMIT 300
-    \`);
+    `);
     res.json(result.rows);
   }));
 
   router.patch('/admin/payouts/:id/status',requireSuperAdmin,wrap(async(req,res)=>{
     const status=String(req.body?.status||''),allowed=['approved','processing','paid','failed','cancelled'];
     if(!allowed.includes(status))return res.status(400).json({error:'Invalid payout status.'});
-    const result=await pool.query(\`
+    const result=await pool.query(`
       UPDATE public.vendor_payouts SET status=$1,processed_at=CASE WHEN $1 IN ('paid','failed','cancelled') THEN NOW() ELSE processed_at END
       WHERE id=$2 AND status IN ('requested','approved','processing') RETURNING *
-    \`,[status,req.params.id]);
+    `,[status,req.params.id]);
     if(!result.rowCount)return res.status(409).json({error:'Payout not found or is already in a final state.'});
     res.json(result.rows[0]);
   }));
@@ -301,10 +301,10 @@ export function createMarketplaceRouter({ pool }) {
     const description=String(b.description||'').trim().slice(0,3000);
     if(name.length<2||!emailPattern.test(email)||store.length<2)return res.status(400).json({error:'Name, valid email and store name are required.'});
     try {
-      const r=await pool.query(\`
+      const r=await pool.query(`
         INSERT INTO public.vendor_applications(name,email,store_name,phone,description)
         VALUES($1,$2,$3,$4,$5) RETURNING id,status,created_at
-      \`,[name,email,store,phone,description]);
+      `,[name,email,store,phone,description]);
       res.status(201).json({...r.rows[0],message:'Application received. The team will review it before seller access is enabled.'});
     } catch(error) {
       if(error.code==='23505') return res.status(409).json({error:'An application for this email is already on file.'});
@@ -329,18 +329,18 @@ export function createMarketplaceRouter({ pool }) {
         const a=app.rows[0];
         const base=a.store_name.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,80);
         const slug=base+'-'+a.id;
-        const u=await c.query(\`
+        const u=await c.query(`
           INSERT INTO public.marketplace_users(email,display_name,role,status)
           VALUES($1,$2,'vendor','pending')
           ON CONFLICT(email) DO UPDATE SET display_name=EXCLUDED.display_name
           RETURNING id
-        \`,[a.email,a.name]);
-        const vendor=await c.query(\`
+        `,[a.email,a.name]);
+        const vendor=await c.query(`
           INSERT INTO public.vendors(user_id,store_name,slug,description,contact_email,contact_phone,verification_status)
           VALUES($1,$2,$3,$4,$5,$6,'pending')
           ON CONFLICT(user_id) DO UPDATE SET store_name=EXCLUDED.store_name
           RETURNING id,store_name,slug,verification_status
-        \`,[u.rows[0].id,a.store_name,slug,a.description,a.email,a.phone]);
+        `,[u.rows[0].id,a.store_name,slug,a.description,a.email,a.phone]);
         await c.query("INSERT INTO public.marketplace_audit_log(actor_role,action,entity_type,entity_id,details) VALUES('super_admin','application_approved','vendor',$1,$2::jsonb)",[String(vendor.rows[0].id),JSON.stringify({application_id:a.id,email:a.email})]);
       }
       await c.query('COMMIT');
