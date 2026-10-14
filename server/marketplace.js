@@ -284,11 +284,16 @@ export function createMarketplaceRouter({ pool }) {
     const store=String(b.store_name||'').trim().slice(0,160),phone=String(b.phone||'').trim().slice(0,40);
     const description=String(b.description||'').trim().slice(0,3000);
     if(name.length<2||!emailPattern.test(email)||store.length<2)return res.status(400).json({error:'Name, valid email and store name are required.'});
-    const r=await pool.query(\`
-      INSERT INTO public.vendor_applications(name,email,store_name,phone,description)
-      VALUES($1,$2,$3,$4,$5) RETURNING id,status,created_at
-    \`,[name,email,store,phone,description]);
-    res.status(201).json({...r.rows[0],message:'Application received. The team will review it before seller access is enabled.'});
+    try {
+      const r=await pool.query(\`
+        INSERT INTO public.vendor_applications(name,email,store_name,phone,description)
+        VALUES($1,$2,$3,$4,$5) RETURNING id,status,created_at
+      \`,[name,email,store,phone,description]);
+      res.status(201).json({...r.rows[0],message:'Application received. The team will review it before seller access is enabled.'});
+    } catch(error) {
+      if(error.code==='23505') return res.status(409).json({error:'An application for this email is already on file.'});
+      throw error;
+    }
   }));
 
   router.get('/admin/vendor-applications',requireSuperAdmin,wrap(async(_req,res)=>{
