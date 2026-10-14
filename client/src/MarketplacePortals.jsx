@@ -8,7 +8,7 @@ export function VendorPortal({ API, money }) {
   const [description, setDescription] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState(() => window.sessionStorage.getItem('style-marketplace-token') || '');
   const [user, setUser] = useState(null);
   const [store, setStore] = useState(null);
   const [tab, setTab] = useState('Dashboard');
@@ -27,6 +27,24 @@ export function VendorPortal({ API, money }) {
     if (!response.ok) throw new Error(result.error || 'Marketplace request failed.');
     return result;
   }
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(API + '/marketplace/me', { headers: { Authorization: 'Bearer ' + token } });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.error || 'Your session expired. Please sign in again.');
+        if (!cancelled) { setUser(result.user); setStore(result.store || null); }
+      } catch (error) {
+        if (!cancelled) { window.sessionStorage.removeItem('style-marketplace-token'); setToken(''); setUser(null); setStore(null); setMessage(error.message); }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => { if (token) window.sessionStorage.setItem('style-marketplace-token', token); else window.sessionStorage.removeItem('style-marketplace-token'); }, [token]);
 
   async function authenticate(event) {
     event.preventDefault();
@@ -91,7 +109,7 @@ export function VendorPortal({ API, money }) {
     finally { setBusy(false); }
   }
 
-  const logout = () => { setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMessage('Signed out.'); };
+  const logout = () => { window.sessionStorage.removeItem('style-marketplace-token'); setToken(''); setUser(null); setStore(null); setData([]); setDashboard(null); setMode('login'); setFullName(''); setStoreName(''); setPhone(''); setDescription(''); setEmail(''); setPassword(''); setMessage('Signed out.'); };
 
   return <main className="admin-page section-wrap">
     <p className="eyebrow">THE STYLE MARKETPLACE</p><h1>Seller <em>studio.</em></h1>
@@ -159,7 +177,7 @@ export function VendorPortal({ API, money }) {
 }
 
 export function MarketplaceAdmin({ API, money }) {
-  const [mode,setMode]=useState('login'),[adminToken,setAdminToken]=useState(''),[fullName,setFullName]=useState(''),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[token,setToken]=useState(''),[user,setUser]=useState(null),[tab,setTab]=useState('Vendors'),[data,setData]=useState([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+  const [mode,setMode]=useState('login'),[adminToken,setAdminToken]=useState(''),[fullName,setFullName]=useState(''),[email,setEmail]=useState(''),[password,setPassword]=useState(''),[token,setToken]=useState(''),[user,setUser]=useState(null),[tab,setTab]=useState('Vendors'),[data,setData]=useState([]),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[subaccount,setSubaccount]=useState({vendorId:'',subaccountCode:'',splitCode:''});
   const [rule,setRule]=useState({name:'Default percentage',calculationType:'percentage',percentage:'10',flatFee:'0',vendorStoreId:'',priority:'100',tiers:'[{"upTo":5000,"percentage":10},{"upTo":20000,"percentage":8}]'});
   const headers={Authorization:'Bearer '+token,'Content-Type':'application/json'};
   async function api(path,options={}){const r=await fetch(API+'/marketplace'+path,{...options,headers:{...headers,...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Marketplace admin request failed.');return d}
@@ -178,7 +196,19 @@ export function MarketplaceAdmin({ API, money }) {
     </> : <>
       <div className="admin-toolbar"><div className="admin-tabs">{['Vendors','Commissions','Payouts'].map(x=><button key={x} className={tab===x?'active':''} onClick={()=>setTab(x)}>{x}</button>)}</div><button className="admin-signout" onClick={()=>{setUser(null);setToken('');setData([]);setMessage('Signed out.')}}>Sign out</button></div>
       {message && <p className="admin-message" role="status">{message}</p>}{busy && <p>Loading…</p>}
-      {tab==='Vendors' && <div className="admin-table-wrap"><table><thead><tr><th>Store</th><th>Owner</th><th>Status</th><th>Gross sales</th><th>Commission</th><th>Vendor net</th><th>Review</th></tr></thead><tbody>{data.map(v=><tr key={v.id}><td>{v.store_name}<small>{v.slug}</small></td><td>{v.full_name}<small>{v.email}</small></td><td>{v.status}</td><td>{money(v.gross_sales)}</td><td>{money(v.platform_commission)}</td><td>{money(v.vendor_earnings)}</td><td><button onClick={()=>vendorStatus(v.id,'approved')}>Approve</button> <button onClick={()=>vendorStatus(v.id,'rejected')}>Reject</button> <button onClick={()=>vendorStatus(v.id,'suspended')}>Suspend</button></td></tr>)}</tbody></table></div>}
+      {tab==='Vendors' && <section>
+        <div className="admin-table-wrap"><table><thead><tr><th>Store</th><th>Owner</th><th>Status</th><th>Paystack Subaccount</th><th>Split group</th><th>Gross sales</th><th>Commission</th><th>Vendor net</th><th>Review</th></tr></thead><tbody>{data.map(v=><tr key={v.id}><td>{v.store_name}<small>{v.slug}</small></td><td>{v.full_name}<small>{v.email}</small></td><td>{v.status}</td><td>{v.paystack_subaccount_code||'Not configured'}</td><td>{v.paystack_split_code||'Not configured'}</td><td>{money(v.gross_sales)}</td><td>{money(v.platform_commission)}</td><td>{money(v.vendor_earnings)}</td><td><button onClick={()=>vendorStatus(v.id,'approved')}>Approve</button> <button onClick={()=>vendorStatus(v.id,'rejected')}>Reject</button> <button onClick={()=>vendorStatus(v.id,'suspended')}>Suspend</button></td></tr>)}</tbody></table></div>
+        <form className="admin-form" onSubmit={async e=>{e.preventDefault();try{await api('/admin/vendors/'+subaccount.vendorId+'/paystack-subaccount',{method:'PATCH',body:JSON.stringify({subaccountCode:subaccount.subaccountCode})});setMessage('Verified Paystack subaccount code saved.');setSubaccount(old=>({...old,subaccountCode:''}));await load()}catch(error){setMessage(error.message)}}}>
+          <h2>Connect seller Paystack subaccount</h2><p>Create and verify this vendor’s subaccount in Paystack first. Configure the platform/vendor share and fee bearer there.</p>
+          <div className="admin-fields"><select required value={subaccount.vendorId} onChange={e=>setSubaccount({...subaccount,vendorId:e.target.value})}><option value="">Select vendor</option>{data.map(v=><option key={v.id} value={v.id}>{v.store_name} — {v.email}</option>)}</select><input required placeholder="Paystack ACCT_ subaccount code" value={subaccount.subaccountCode} onChange={e=>setSubaccount({...subaccount,subaccountCode:e.target.value})}/></div>
+          <button className="btn btn-dark">Save subaccount</button>
+        </form>
+        <form className="admin-form" onSubmit={async e=>{e.preventDefault();try{await api('/admin/vendors/'+subaccount.vendorId+'/paystack-split-code',{method:'PATCH',body:JSON.stringify({splitCode:subaccount.splitCode})});setMessage('Paystack split group code saved.');setSubaccount(old=>({...old,splitCode:''}));await load()}catch(error){setMessage(error.message)}}}>
+          <h2>Connect Paystack multi-seller split group</h2><p>Create a split group in Paystack that includes the seller subaccounts which can occur together in a cart. This split code is used for multi-seller checkout and must be tested in the same Paystack environment as the secret key.</p>
+          <div className="admin-fields"><select required value={subaccount.vendorId} onChange={e=>setSubaccount({...subaccount,vendorId:e.target.value})}><option value="">Select vendor/store association</option>{data.map(v=><option key={v.id} value={v.id}>{v.store_name} — {v.email}</option>)}</select><input required placeholder="Paystack SPL_ split code" value={subaccount.splitCode||''} onChange={e=>setSubaccount({...subaccount,splitCode:e.target.value})}/></div>
+          <button className="btn btn-dark">Save split group code</button>
+        </form>
+      </section>}
       {tab==='Commissions' && <section>
         <form className="admin-form" onSubmit={saveRule}>
           <h2>New commission rule</h2>

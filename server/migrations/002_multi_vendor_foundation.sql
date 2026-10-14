@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS public.vendor_stores (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+ALTER TABLE public.vendor_stores ADD COLUMN IF NOT EXISTS paystack_split_code TEXT;
 ALTER TABLE public.products ADD COLUMN IF NOT EXISTS vendor_store_id BIGINT REFERENCES public.vendor_stores(id) ON DELETE RESTRICT;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS buyer_user_id BIGINT REFERENCES public.marketplace_users(id) ON DELETE SET NULL;
 
