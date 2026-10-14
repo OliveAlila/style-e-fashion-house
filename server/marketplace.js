@@ -3,7 +3,8 @@ import crypto from 'node:crypto';
 
 const router = express.Router();
 const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;\n
+const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 function getActor(req) {
   const supplied = req.headers.authorization?.replace(/^Bearer\s+/i, '') || '';
   const configured = process.env.ADMIN_TOKEN || '';
