@@ -82,18 +82,16 @@ async function requireVendorIdentity(req, res, next) {
   const token = (req.headers.authorization || '').replace(/^Bearer\\s+/i, '');
   const claims = verifyVendorSession(token);
   if (!claims) return res.status(401).json({ error: 'Sign in with your vendor account to continue.' });
-  try {
-    const result = await req.app.locals.marketplacePool.query(`
-      SELECT v.id AS vendor_id, v.user_id, v.store_name, v.slug
-      FROM public.vendors v
-      JOIN public.marketplace_users u ON u.id=v.user_id
-      WHERE v.id=$1 AND v.user_id=$2 AND u.role='vendor' AND u.status='active'
-        AND v.verification_status='approved'
-    `, [claims.vendor, claims.sub]);
-    if (!result.rowCount) return res.status(403).json({ error: 'Your vendor account is not active or approved.' });
-    req.vendor = result.rows[0];
+  req.app.locals.marketplacePool.query(`
+    SELECT v.id AS vendor_id,v.user_id,v.store_name,v.slug
+    FROM public.vendors v JOIN public.marketplace_users u ON u.id=v.user_id
+    WHERE v.id=$1 AND v.user_id=$2 AND u.role='vendor' AND u.status='active'
+      AND v.verification_status='approved'
+  `,[claims.vendor,claims.sub]).then(result=>{
+    if(!result.rowCount)return res.status(403).json({error:'Your vendor account is not active or approved.'});
+    req.vendor=result.rows[0];
     return next();
-  } catch (error) { return next(error); }
+  }).catch(next);
 }
 
 function amountInteger(value, label, min = 0) {
