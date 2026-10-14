@@ -310,9 +310,11 @@ export function createMarketplaceRouter({ pool }) {\n  router.use((req, _res, ne
       await c.query('BEGIN');
       const result=await c.query(`
         UPDATE public.vendors SET verification_status=$1,updated_at=NOW()
-        WHERE id=$2 RETURNING id,store_name,slug,verification_status
+        WHERE id=$2 RETURNING id,store_name,slug,verification_status,user_id
       `,[status,req.params.id]);
       if(!result.rowCount){await c.query('ROLLBACK');return res.status(404).json({error:'Vendor not found.'})}
+      if(status==='approved') await c.query("UPDATE public.marketplace_users SET status='active',updated_at=NOW() WHERE id=$1",[result.rows[0].user_id]);
+      else if(status==='rejected') await c.query("UPDATE public.marketplace_users SET status='rejected',updated_at=NOW() WHERE id=$1",[result.rows[0].user_id]);
       await c.query(`
         INSERT INTO public.marketplace_audit_log(actor_role,action,entity_type,entity_id,details)
         VALUES('super_admin','vendor_verification_changed','vendor',$1,$2::jsonb)
