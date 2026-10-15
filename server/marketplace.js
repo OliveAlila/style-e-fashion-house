@@ -264,12 +264,44 @@ export function createMarketplaceRouter({ pool, admin }) {
     } catch (error) { await client.query('ROLLBACK'); throw error; } finally { client.release(); }
   }));
 
+  router.get('/buyer/review-eligible', auth, allow('buyer'), wrap(async (req, res) => {
+    const rows = (await pool.query(`
+      SELECT o.id AS order_id,o.reference,p.id AS product_id,p.name,p.images,p.brand,
+             COALESCE(NULLIF(v.store_name,''),NULLIF(p.brand,''),'STYLE E-Fashion House') AS brand
+      FROM public.orders o
+      CROSS JOIN LATERAL jsonb_array_elements(o.items) item
+      JOIN public.products p ON p.id=(item->>'productId')::bigint
+      LEFT JOIN public.vendor_stores v ON v.id=p.vendor_store_id
+      LEFT JOIN public.product_reviews r ON r.order_id=o.id AND r.product_id=p.id
+      WHERE lower(o.email)=lower($1) AND o.payment_status='paid' AND o.order_status='delivered'
+        AND r.id IS NULL
+      ORDER BY o.created_at DESC
+    `, [req.marketUser.email])).rows;
+    res.json(rows);
+  }));
+
+  router.post('/buyer/product-reviews', auth, allow('buyer'), wrap(async (req, res) => {
+    const orderReference=String(req.body?.orderReference||'').trim();
+    const productId=Number(req.body?.productId), rating=Number(req.body?.rating);
+    const body=String(req.body?.body||'').trim().slice(0,1000);
+    if(!orderReference||!Number.isSafeInteger(productId)||productId<1||!Number.isInteger(rating)||rating<1||rating>5)
+      return res.status(400).json({error:'Choose a product and a rating from 1 to 5 stars.'});
+    const order=(await pool.query("SELECT id FROM public.orders WHERE reference=$1 AND lower(email)=lower($2) AND payment_status='paid' AND order_status='delivered'",[orderReference,req.marketUser.email])).rows[0];
+    if(!order)return res.status(403).json({error:'You can rate a product only after your paid order has been delivered.'});
+    const line=(await pool.query("SELECT 1 FROM jsonb_array_elements((SELECT items FROM public.orders WHERE id=$1)) item WHERE (item->>'productId')::bigint=$2",[order.id,productId])).rows[0];
+    if(!line)return res.status(403).json({error:'This product was not included in that order.'});
+    try{
+      const review=(await pool.query('INSERT INTO public.product_reviews(product_id,order_id,buyer_user_id,rating,body) VALUES($1,$2,$3,$4,$5) RETURNING id,product_id,rating,body,created_at',[productId,order.id,req.marketUser.id,rating,body])).rows[0];
+      res.status(201).json(review);
+    }catch(error){if(error.code==='23505')return res.status(409).json({error:'You have already rated this product for that order.'});throw error;}
+  }));
+
   router.post('/reviews', auth, allow('buyer'), wrap(async (req, res) => {
     const orderReference = String(req.body?.orderReference || '').trim();
     const storeId = Number(req.body?.storeId), productId = req.body?.productId == null || req.body.productId === '' ? null : Number(req.body.productId);
     const rating = Number(req.body?.rating), title = String(req.body?.title || '').trim().slice(0, 120), body = String(req.body?.body || '').trim().slice(0, 2000);
     if (!orderReference || !Number.isSafeInteger(storeId) || storeId < 1 || !Number.isInteger(rating) || rating < 1 || rating > 5) return res.status(400).json({ error:'Provide a valid order reference, store, and 1–5 rating.' });
-    const order = (await pool.query("SELECT id FROM public.orders WHERE reference=$1 AND payment_status='paid' AND lower(email)=lower($2)", [orderReference,req.marketUser.email])).rows[0];
+    const order = (await pool.query("SELECT id FROM public.orders WHERE reference=$1 AND payment_status='paid' AND order_status='delivered' AND lower(email)=lower($2)", [orderReference,req.marketUser.email])).rows[0];
     if (!order) return res.status(403).json({ error:'Reviews are limited to purchases verified against your account email.' });
     if (productId !== null) {
       const product = (await pool.query('SELECT id FROM public.products WHERE id=$1 AND vendor_store_id=$2', [productId,storeId])).rows[0];
