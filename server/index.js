@@ -63,6 +63,8 @@ async function init(){
  const marketplaceMigration = await readFile(new URL('./migrations/002_multi_vendor_foundation.sql', import.meta.url), 'utf8');
  await pool.query(marketplaceMigration);
  console.log('Multi-vendor marketplace migration applied.');
+ await pool.query(`ALTER TABLE public.products ADD COLUMN IF NOT EXISTS brand TEXT NOT NULL DEFAULT 'STYLE E-Fashion House'`);
+ await pool.query(`CREATE TABLE IF NOT EXISTS public.product_reviews (id BIGSERIAL PRIMARY KEY, product_id BIGINT NOT NULL REFERENCES public.products(id) ON DELETE CASCADE, order_id BIGINT NOT NULL REFERENCES public.orders(id) ON DELETE RESTRICT, buyer_user_id BIGINT NOT NULL REFERENCES public.marketplace_users(id) ON DELETE RESTRICT, rating INTEGER NOT NULL CHECK(rating BETWEEN 1 AND 5), body TEXT NOT NULL DEFAULT '', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), UNIQUE(product_id,order_id))`);
  const count=(await pool.query('SELECT COUNT(*)::int AS n FROM products')).rows[0].n;
  if(!count) for(const p of seed) await pool.query('INSERT INTO products(name,category,type,price,images,description,sizes,colors,stock) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)',[p.name,p.category,p.type,p.price,p.images,p.description,JSON.stringify(p.sizes),JSON.stringify(p.colors),p.stock]);
 }
