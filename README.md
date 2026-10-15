@@ -322,3 +322,95 @@ On backend startup, `server/migrations/002_multi_vendor_foundation.sql` runs aft
 - Keep the existing webhook configured to \`https://YOUR-API.onrender.com/api/paystack/webhook\` so successful transactions continue to be verified/reconciled server-side. Use a consistent mode: Test secret with Test subaccounts, and Live secret with Live subaccounts.
 - The Vercel project should use root directory \`client\`, build command \`npm run build\`, output directory \`dist\`, and the existing catch-all rewrite in \`client/vercel.json\`. The client now derives its first view from \`/vendor\`, \`/sell\`, or \`/marketplace-admin\` and handles browser back/forward events.
 - If the frontend builds but \`/vendor\` still shows the old landing page, check that Vercel's production deployment was built from the commit containing these routing changes rather than a previous deployment.
+
+## Hosting migration and database management
+
+This section is the provider-independent checklist for moving STYLE E-Fashion House to a different host. The deployment instructions above describe the current recommended setup (Vercel frontend + Render Express API + PostgreSQL); a move to another provider may require different dashboard settings, but the application still needs the same core components.
+
+### Current architecture (important)
+
+- **Frontend:** React + Vite in `client/`; build output is `client/dist/`.
+- **Backend:** Node.js + Express in `server/`; entry point is `server/index.js`; start command is `npm start`.
+- **Database:** **PostgreSQL**, accessed through the Node.js `pg` package using `DATABASE_URL`.
+- **Database administration:** This project does not use MySQL as its application database. **phpMyAdmin is a MySQL/MariaDB administration tool and is not the tool for this project's PostgreSQL database.** Use the provider's PostgreSQL dashboard, a PostgreSQL-compatible client such as pgAdmin, or PostgreSQL command-line tools. Do not follow MySQL/phpMyAdmin instructions for this repository unless the application has deliberately been migrated to MySQL.
+- **Payments:** Paystack integration is handled by the backend; keep secret credentials server-side.
+- **Image uploads:** Cloudinary credentials are supported by the backend environment template. Confirm how the deployed code stores and retrieves image URLs before migration.
+
+### Before changing hosting
+
+1. Identify the current frontend URL, API URL, PostgreSQL database, domain/DNS provider, and any image storage account.
+2. Review `server/.env.example` and the actual backend code to inventory required environment variables. The example file documents the expected names; configure real values in the hosting dashboard, not in Git.
+3. Make a database backup and verify that the backup file is non-empty and can be read. Keep it in a private, access-controlled location because it may contain customer information, order records, and password hashes.
+4. Record the current production schema/migration state and take note of any recent orders or account changes. Avoid making the old and new production systems writable at the same time unless you have a plan to keep their data consistent.
+5. Do not delete the old host, database, or backups until the new deployment has passed the acceptance tests below.
+
+### Back up and restore PostgreSQL
+
+Use the current provider's PostgreSQL export/backup feature or PostgreSQL tools. If command-line access is available, a custom-format backup can be created with:
+
+```bash
+pg_dump --format=custom --no-owner --no-acl "$DATABASE_URL" --file=style-fashion-backup.dump
+```
+
+Restore to a newly created, compatible PostgreSQL database with:
+
+```bash
+pg_restore --no-owner --no-acl --dbname="$NEW_DATABASE_URL" style-fashion-backup.dump
+```
+
+These commands are examples; check the source and destination PostgreSQL versions and provider requirements first. Keep connection strings private, do not paste them into public logs or commit them to Git, and do not restore over production data without confirming the target database. If using a provider's built-in backup/export tools, follow that provider's instructions instead.
+
+The backend contains startup database initialization and migrations. Review the current migration files before deploying to a destination and test schema changes on a staging database first. A successful deployment is not proof that all production records were copied.
+
+### Hosting-neutral migration sequence
+
+1. **Provision PostgreSQL** on the destination host, or choose a compatible managed PostgreSQL service. Create the database/user and configure private or otherwise appropriately restricted access.
+2. **Restore the database backup** and verify the expected tables and records are present.
+3. **Deploy the API** from `server/` using Node.js, install dependencies, and run `npm start`. Configure the service's port according to the host and the application's `PORT` handling.
+4. **Set backend environment variables** in the destination's secret/environment settings. At minimum, review `DATABASE_URL`, `CLIENT_URL`, `PAYSTACK_SECRET_KEY`, `ADMIN_TOKEN`, `MARKETPLACE_AUTH_SECRET`, and `PGSSL`. Configure Cloudinary variables if the deployed image-upload flow uses them. Only set `PGSSL=true` when it matches the destination database's TLS requirements.
+5. **Verify the API** at `/api/health` and confirm that it can reach PostgreSQL. Also test `/api/products` and the implemented marketplace routes.
+6. **Deploy the frontend** from `client/` with build command `npm run build` and output directory `dist`. Set `VITE_API_URL` to the public API base URL ending in `/api` (for example, `https://api.example.com/api`). Rebuild the frontend after changing this variable.
+7. **Configure CORS** by setting the backend's `CLIENT_URL` to the exact deployed frontend origin, including the scheme and hostname and excluding a trailing API path. If preview domains are used, handle them intentionally rather than opening CORS to every origin.
+8. **Configure SPA routing** so direct navigation and refreshes on client routes (including vendor routes) serve the frontend's `index.html`. The existing `client/vercel.json` is Vercel-specific; configure equivalent rewrites if the new frontend host requires them.
+9. **Configure Paystack** with the correct webhook URL and the same Test or Live environment across the secret key and seller subaccounts. Verify callback/webhook behavior on the new API domain.
+10. **Switch traffic only after testing**. Update the domain/DNS records if needed, verify HTTPS, and keep the previous deployment available for rollback until the new one is stable.
+
+### Environment variable checklist
+
+Use the actual `server/.env.example` and source code as the source of truth; hosting dashboards should contain the real values.
+
+| Variable | Where | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | Backend only | PostgreSQL connection string for the destination database. |
+| `PGSSL` | Backend only | Set according to the destination PostgreSQL provider's TLS requirements. |
+| `PORT` | Backend | Optional local port; many hosts inject this automatically. |
+| `CLIENT_URL` | Backend only | Exact public frontend origin used for browser/API configuration. |
+| `PAYSTACK_SECRET_KEY` | Backend only | Keep secret; use a Test key in testing and a Live key only for production. |
+| `ADMIN_TOKEN` | Backend only | Long, random secret used by administrative endpoints and the one-time super-admin bootstrap flow. |
+| `MARKETPLACE_AUTH_SECRET` | Backend only | Random secret of at least 32 characters for marketplace authentication. |
+| `VITE_API_URL` | Frontend build environment | Public API base URL ending in `/api`; never place secrets here. |
+| `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | Backend only | Configure if Cloudinary uploads are used; never expose the API secret to the browser. |
+
+Do not assume all hosts use the same variable names or that every variable is required by every code path. Check the source before removing or renaming variables.
+
+### Migration acceptance checklist
+
+Before declaring the move complete, verify all implemented features in the new environment:
+
+- [ ] Frontend homepage, product detail pages, and direct client-side routes load and refresh.
+- [ ] `GET /api/health` succeeds and reports a healthy database connection.
+- [ ] `GET /api/products` returns the expected product records and images.
+- [ ] Existing buyer/vendor/admin accounts and relevant records are preserved.
+- [ ] Login, role checks, vendor approval, and vendor-specific data access work.
+- [ ] Vendor dashboards show only the authenticated vendor's permitted data.
+- [ ] Product create/update/archive and image upload work where implemented.
+- [ ] Checkout validates prices and stock on the server and creates the expected order records.
+- [ ] Paystack transaction verification and signed webhook processing work on the new API URL.
+- [ ] For marketplace split settlement, approved vendors have valid Paystack subaccounts in the same Test/Live environment as the configured secret key, and multi-vendor checkout has been tested.
+- [ ] Failed, cancelled, duplicated, delayed, and refunded-payment cases are handled and reconciled as supported by the current implementation.
+- [ ] CORS, HTTPS, secrets, logs, database backups, and a restore/rollback path have been checked.
+
+### Important payment distinction
+
+A **Paystack split transaction at checkout** and a **later payout/transfer to a seller** are different flows. The current marketplace documentation describes split configuration using seller Paystack subaccounts, while payout requests/ledger records alone do not mean the application has initiated a separate bank transfer. Confirm the actual deployed code and Paystack account configuration before advertising automatic seller settlement as operational. Test the entire payment and reconciliation path in Paystack Test mode before enabling Live transactions.
+
