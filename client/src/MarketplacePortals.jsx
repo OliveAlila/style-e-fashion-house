@@ -22,6 +22,7 @@ export function VendorPortal({ API, money }) {
   const [imagePreview, setImagePreview] = useState('');
   const [uploadStatus, setUploadStatus] = useState('');
   const [savingProduct, setSavingProduct] = useState(false);
+  const [editingProductId, setEditingProductId] = useState(null);
   const [review, setReview] = useState({orderReference:'',storeId:'',productId:'',rating:'5',title:'',body:''});
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
 
@@ -156,20 +157,46 @@ export function VendorPortal({ API, money }) {
         image_gallery: imageUrls
       };
       delete body.images;
-      await api('/vendor/products', { method:'POST', body:JSON.stringify(body) });
+      await api(editingProductId ? `/vendor/products/${editingProductId}` : '/vendor/products', { method: editingProductId ? 'PATCH' : 'POST', body:JSON.stringify(body) });
       setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
+      setEditingProductId(null);
       setImageFile(null);
       setUploadStatus('');
       const fileInput = document.getElementById('vendor-product-image');
       if (fileInput) fileInput.value = '';
       await load();
-      setMessage('Product added successfully. It is now listed in your seller products.');
+      setMessage(editingProductId ? 'Product updated successfully.' : 'Product added successfully. It is now listed in your seller products.');
     } catch (error) {
       setMessage(error.message || 'Could not add the product. Please try again.');
     } finally {
       setSavingProduct(false);
       setUploadStatus('');
     }
+  }
+
+  function editProduct(p) {
+    setEditingProductId(p.id);
+    setImageFile(null);
+    setProduct({name:p.name||'',category:p.category||'STYLE WOMAN',type:p.type||'Clothing',price:String(p.price??''),stock:String(p.stock??0),description:p.description||'',sizes:Array.isArray(p.sizes)?p.sizes.join(', '):'S, M, L',colors:Array.isArray(p.colors)?p.colors.join(', '):'Black, Cream',images:(Array.isArray(p.image_gallery)&&p.image_gallery.length?p.image_gallery:[p.images]).filter(Boolean).join(', ')});
+    setMessage('Editing product. Save your changes when finished.');
+    document.getElementById('vendor-product-form')?.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+
+  async function deleteProduct(p) {
+    if (!window.confirm(`Delete “${p.name}” from your storefront? This hides it from shoppers while preserving order history.`)) return;
+    try {
+      await api(`/vendor/products/${p.id}/archive`, {method:'POST'});
+      setData(current=>current.filter(item=>item.id!==p.id));
+      if (editingProductId===p.id) { setEditingProductId(null); setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''}); setImageFile(null); }
+      setMessage('Product removed from your storefront.');
+    } catch(error) { setMessage(error.message || 'Could not delete this product.'); }
+  }
+
+  function cancelProductEdit() {
+    setEditingProductId(null);
+    setImageFile(null);
+    setProduct({name:'',category:'STYLE WOMAN',type:'Clothing',price:'',stock:'0',description:'',sizes:'S, M, L',colors:'Black, Cream',images:''});
+    setMessage('Product editing cancelled.');
   }
 
   async function requestPayout(event) {
@@ -226,7 +253,7 @@ export function VendorPortal({ API, money }) {
         <p>Your store: <b>{dashboard.store?.name}</b> · Public store slug: <code>{dashboard.store?.slug}</code></p>
       </>}
       {user.role==='vendor' && store?.status==='approved' && tab==='Products' && <>
-        <form className="admin-form" onSubmit={saveProduct} onInvalidCapture={e=>{const field=e.target;if(field?.validity?.valueMissing)setMessage(field.placeholder?`Please complete: ${field.placeholder}.`:'Please complete the required fields.');else if(field?.validity?.badInput)setMessage('Enter a valid value in the highlighted field.');}}><h2>Add a product</h2><div className="admin-fields">
+        <form id="vendor-product-form" className="admin-form" onSubmit={saveProduct} onInvalidCapture={e=>{const field=e.target;if(field?.validity?.valueMissing)setMessage(field.placeholder?`Please complete: ${field.placeholder}.`:'Please complete the required fields.');else if(field?.validity?.badInput)setMessage('Enter a valid value in the highlighted field.');}}><h2>{editingProductId ? "Edit product" : "Add a product"}</h2><div className="admin-fields">
           <input required placeholder="Product name" value={product.name} onChange={e=>setProduct({...product,name:e.target.value})}/>
           <select value={product.category} onChange={e=>setProduct({...product,category:e.target.value})}>{['STYLE WOMAN','STYLE MAMA','STYLE KIDS','SETS & GIFTS'].map(x=><option key={x}>{x}</option>)}</select>
           <input placeholder="Type" value={product.type} onChange={e=>setProduct({...product,type:e.target.value})}/>
@@ -248,8 +275,8 @@ export function VendorPortal({ API, money }) {
             <p className="admin-message">Required: choose a file from your device OR enter an image URL. Use only one method.</p>
           </div>
           <textarea className="wide" placeholder="Product description" value={product.description} onChange={e=>setProduct({...product,description:e.target.value})}/>
-        </div><button type="submit" className="btn btn-dark" disabled={savingProduct}>{savingProduct?'ADDING PRODUCT…':'ADD PRODUCT'}</button></form>
-        <div className="admin-table-wrap"><table><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{p.name}</td><td>{money(p.price)}</td><td>{p.stock}</td><td>{p.active?'Active':'Archived'}</td></tr>)}</tbody></table></div>
+        </div><button type="submit" className="btn btn-dark" disabled={savingProduct}>{savingProduct?(imageFile?'UPLOADING…':'SAVING…'):editingProductId?'SAVE CHANGES':'ADD PRODUCT'}</button>{editingProductId && <button type="button" className="admin-signout" onClick={cancelProductEdit} disabled={savingProduct}>CANCEL EDIT</button>}</form>
+        <div className="admin-table-wrap"><table><thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>{data.map(p=><tr key={p.id}><td>{p.name}</td><td>{money(p.price)}</td><td>{p.stock}</td><td>{p.active?'Active':'Archived'}</td><td><button type="button" className="vendor-product-action" onClick={()=>editProduct(p)}>Edit</button> <button type="button" className="vendor-product-action vendor-delete-action" onClick={()=>deleteProduct(p)}>Delete</button></td></tr>)}</tbody></table></div>
       </>}
       {user.role==='vendor' && store?.status==='approved' && tab==='Orders' && <div className="admin-table-wrap"><table><thead><tr><th>Order</th><th>Product</th><th>Qty</th><th>Gross</th><th>Commission</th><th>Your net</th><th>Payment</th><th>Payout</th></tr></thead><tbody>{data.map(o=><tr key={o.line_id}><td>{o.reference}<small>{o.customer_name}</small></td><td>{o.product_name}</td><td>{o.quantity}</td><td>{money(o.line_subtotal)}</td><td>{money(o.commission_amount)}</td><td>{money(o.vendor_net_amount)}</td><td>{o.payment_status}</td><td>{o.payout_status}</td></tr>)}</tbody></table></div>}
       {user.role==='vendor' && store?.status==='approved' && tab==='Payouts' && <>
