@@ -24,6 +24,10 @@ export function VendorPortal({ API, money }) {
   const [savingProduct, setSavingProduct] = useState(false);
   const [editingProductId, setEditingProductId] = useState(null);
   const [review, setReview] = useState({orderReference:'',storeId:'',productId:'',rating:'5',title:'',body:''});
+  const [eligibleReviews, setEligibleReviews] = useState([]);
+  const [ratingValue, setRatingValue] = useState(5);
+  const [ratingBody, setRatingBody] = useState('');
+  const [ratingPrompt, setRatingPrompt] = useState(null);
   const headers = { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' };
 
   async function api(path, options = {}) {
@@ -94,6 +98,23 @@ export function VendorPortal({ API, money }) {
     finally { setBusy(false); }
   }
   useEffect(() => { if (token && user) load(); }, [token, user, tab]);
+  useEffect(() => {
+    if (!token || user?.role !== 'buyer') return undefined;
+    let cancelled=false;
+    api('/buyer/review-eligible').then(rows=>{if(!cancelled&&rows.length){setEligibleReviews(rows);setRatingPrompt(rows[0]);}}).catch(()=>{});
+    return ()=>{cancelled=true;};
+  }, [token,user]);
+
+  async function submitProductRating(){
+    if(!ratingPrompt)return;
+    setBusy(true);
+    try{
+      await api('/buyer/product-reviews',{method:'POST',body:JSON.stringify({orderReference:ratingPrompt.reference,productId:ratingPrompt.product_id,rating:Number(ratingValue),body:ratingBody})});
+      const remaining=eligibleReviews.filter(x=>!(x.order_id===ratingPrompt.order_id&&x.product_id===ratingPrompt.product_id));
+      setEligibleReviews(remaining);setRatingPrompt(remaining[0]||null);setRatingBody('');setRatingValue(5);setMessage('Thank you for rating your purchase!');
+    }catch(error){setMessage(error.message||'Could not submit your rating.');}
+    finally{setBusy(false);}
+  }
 
   async function saveProduct(event) {
     event.preventDefault();
@@ -298,6 +319,7 @@ export function VendorPortal({ API, money }) {
         <textarea className="wide" placeholder="Your review" value={review.body} onChange={e=>setReview({...review,body:e.target.value})}/>
       </div><button className="btn btn-dark" disabled={busy}>SUBMIT REVIEW</button></form>}
     </>}
+    {ratingPrompt && user?.role==='buyer' && <div className="modal-backdrop rating-prompt-backdrop"><section className="rating-prompt" role="dialog" aria-modal="true" aria-labelledby="rate-product-title"><button type="button" className="modal-close icon-btn" aria-label="Not now" onClick={()=>setRatingPrompt(null)}>×</button><p className="eyebrow">YOUR ORDER WAS DELIVERED</p><h2 id="rate-product-title">Rate our product</h2><div className="rating-product"><img src={ratingPrompt.images} alt=""/><div><b>{ratingPrompt.name}</b><small>Brand: {ratingPrompt.brand}</small></div></div><p>How was your purchase?</p><div className="rating-stars" role="group" aria-label="Product rating">{[1,2,3,4,5].map(n=><button type="button" key={n} aria-label={n+' stars'} className={n<=ratingValue?'selected':''} onClick={()=>setRatingValue(n)}>★</button>)}</div><textarea value={ratingBody} onChange={e=>setRatingBody(e.target.value)} placeholder="Share a few words (optional)" rows={3}/><button type="button" className="btn btn-dark" disabled={busy} onClick={submitProductRating}>{busy?'SUBMITTING…':'SUBMIT RATING'}</button><button type="button" className="rating-later" onClick={()=>setRatingPrompt(null)}>Not now</button></section></div>}
   </main>;
 }
 
