@@ -239,10 +239,11 @@ The backend verifies transaction status, amount, currency, and reference before 
 
 * **Frontend:** React, Vite, responsive CSS.
 * **Backend:** Node.js, Express.
-* **Database:** PostgreSQL, accessed through the `pg` package.
+* **Database:** PostgreSQL, accessed by the Express backend through the Node.js `pg` package.
+* **Database administration tool:** pgAdmin 4, used to connect to and manage the PostgreSQL database hosted on Render; pgAdmin 4 is not the database host itself.
 * **Security:** CORS, Helmet, token-protected administrative endpoints, and signed Paystack webhook verification.
 * **Payments:** Paystack transaction initialization and server-side transaction verification.
-* **Hosting:** Vercel for the frontend; Render for the backend API and PostgreSQL.
+* **Hosting documented in this repository:** Vercel for the frontend and Render for the backend API and PostgreSQL database. Confirm the actual deployed service URLs and settings before migration.
 
 ## Important Before Production
 
@@ -325,14 +326,14 @@ On backend startup, `server/migrations/002_multi_vendor_foundation.sql` runs aft
 
 ## Hosting migration and database management
 
-This section is the provider-independent checklist for moving STYLE E-Fashion House to a different host. The deployment instructions above describe the current recommended setup (Vercel frontend + Render Express API + PostgreSQL); a move to another provider may require different dashboard settings, but the application still needs the same core components.
+This section is the provider-independent checklist for moving STYLE E-Fashion House to a different host. The deployment instructions above document the Vercel frontend + Render Express API + Render PostgreSQL setup. pgAdmin 4 is the administration client used to connect to the Render PostgreSQL database; it is not a separate hosting service. Before migration, the developer should verify the live service URLs and configuration in the hosting dashboards.
 
 ### Current architecture (important)
 
 - **Frontend:** React + Vite in `client/`; build output is `client/dist/`.
 - **Backend:** Node.js + Express in `server/`; entry point is `server/index.js`; start command is `npm start`.
 - **Database:** **PostgreSQL**, accessed through the Node.js `pg` package using `DATABASE_URL`.
-- **Database administration:** This project does not use MySQL as its application database. **phpMyAdmin is a MySQL/MariaDB administration tool and is not the tool for this project's PostgreSQL database.** Use the provider's PostgreSQL dashboard, a PostgreSQL-compatible client such as pgAdmin, or PostgreSQL command-line tools. Do not follow MySQL/phpMyAdmin instructions for this repository unless the application has deliberately been migrated to MySQL.
+- **Database administration:** The PostgreSQL database is hosted on Render and is managed using **pgAdmin 4**, connected to the Render PostgreSQL instance. pgAdmin 4 is a database administration client; Render hosts the database itself. **phpMyAdmin is for MySQL/MariaDB and is not interchangeable with pgAdmin 4.** When migrating, the developer should configure pgAdmin 4 to connect to the destination PostgreSQL database using that provider's connection details, if external connections are permitted.
 - **Payments:** Paystack integration is handled by the backend; keep secret credentials server-side.
 - **Image uploads:** Cloudinary credentials are supported by the backend environment template. Confirm how the deployed code stores and retrieves image URLs before migration.
 
