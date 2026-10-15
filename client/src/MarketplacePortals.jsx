@@ -52,6 +52,12 @@ export function VendorPortal({ API, money }) {
   useEffect(() => { if (token) window.sessionStorage.setItem('style-marketplace-token', token); else window.sessionStorage.removeItem('style-marketplace-token'); }, [token]);
 
   useEffect(() => {
+    if (!message) return undefined;
+    const timeout = window.setTimeout(() => setMessage(''), 2000);
+    return () => window.clearTimeout(timeout);
+  }, [message]);
+
+  useEffect(() => {
     if (!imageFile) { setImagePreview(''); return undefined; }
     const previewUrl = URL.createObjectURL(imageFile);
     setImagePreview(previewUrl);
