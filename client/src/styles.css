@@ -89,3 +89,26 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 /* Align sale and original prices to the left edge of each product card. */
 .product-meta{justify-content:flex-start!important}
 .product-prices{justify-content:flex-start!important;align-items:baseline!important;margin-left:0!important;margin-right:auto!important}
+
+/* Navigation redesign: five evenly spaced destinations on every screen size. */
+.bottom-nav{left:0!important;right:0!important;bottom:0!important;transform:none!important;width:100%!important;max-width:none!important;box-sizing:border-box;grid-template-columns:repeat(5,minmax(0,1fr))!important;gap:0!important;padding:8px max(8px,env(safe-area-inset-left)) calc(8px + env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-right))!important;border-radius:0!important}
+.bottom-nav button{min-width:0!important;width:100%;flex-direction:column!important;gap:5px!important;white-space:nowrap;font-size:clamp(9px,1.8vw,12px)!important;padding:5px 2px!important}
+.bottom-nav button span{display:block;white-space:nowrap;line-height:1.15}
+.bottom-nav button svg{width:21px;height:21px;flex:0 0 auto}
+.bottom-nav button i{left:calc(50% + 7px)}
+body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
+@media(min-width:761px){.bottom-nav{padding-left:max(24px,calc((100vw - 1180px)/2))!important;padding-right:max(24px,calc((100vw - 1180px)/2))!important}.bottom-nav button{flex-direction:row!important;gap:8px!important;font-size:12px!important;min-height:42px}.bottom-nav button svg{width:18px;height:18px}}
+/* Product details: Jumia-inspired mobile gallery with a large hero and thumbnail strip. */
+.product-detail-layout{grid-template-columns:minmax(0,1.05fr) minmax(0,.95fr);align-items:start;gap:34px}
+.product-detail-gallery{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;align-items:start}
+.product-detail-gallery img{display:block;width:100%;height:auto;aspect-ratio:1/1;object-fit:cover;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.product-detail-gallery img:first-child{grid-column:1/-1;aspect-ratio:4/3;max-height: min(68vh,680px);object-fit:contain;background:#f7f6f2}
+@media(max-width:760px){
+ .product-detail-layout{display:flex!important;flex-direction:column!important;gap:18px!important}
+ .product-detail-gallery{width:100%;display:flex!important;flex-direction:row!important;gap:9px!important;overflow-x:auto;overflow-y:hidden;padding:0 0 6px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}
+ .product-detail-gallery img:first-child{flex:0 0 100%!important;width:100%!important;aspect-ratio:1/1!important;max-height:none!important;object-fit:contain!important;scroll-snap-align:start;border:0;border-radius:0;background:#f7f6f2}
+ .product-detail-gallery img:not(:first-child){flex:0 0 76px!important;width:76px!important;height:76px!important;aspect-ratio:1/1!important;object-fit:cover!important;scroll-snap-align:start;border-radius:9px}
+ .product-detail-copy{width:100%;box-sizing:border-box;padding:4px 0 18px!important}
+ .product-detail-copy h1{font-size:clamp(27px,7vw,36px)!important;line-height:1.15}
+ .detail-price{font-size:clamp(25px,7vw,34px)!important}
+}
