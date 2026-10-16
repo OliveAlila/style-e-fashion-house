@@ -17,7 +17,7 @@ export function createAdminRouter({pool,admin,paystackSecret}) {
   if(!name||name.length>180||!category)throw Object.assign(Error('Product name and category are required.'),{status:400});
   if(!Number.isSafeInteger(price)||price<0||price>1e8||!Number.isSafeInteger(stock)||stock<0||stock>1e7||!Number.isFinite(discount)||discount<0||discount>100)throw Object.assign(Error('Invalid price, stock, or discount.'),{status:400});
   const gallery=Array.isArray(b.image_gallery)?b.image_gallery:(typeof b.images==='string'&&b.images?[b.images]:[]);
-  if(gallery.length>12||gallery.some(x=>typeof x!=='string'||!/^https?:\/\//i.test(x)))throw Object.assign(Error('Use up to 12 valid HTTP(S) image URLs.'),{status:400});
+  if(gallery.length>10||gallery.some(x=>typeof x!=='string'||!/^https?:\/\//i.test(x)))throw Object.assign(Error('Use up to 12 valid HTTP(S) image URLs.'),{status:400});
   const variants=Array.isArray(b.variants)?b.variants:[];
   if(variants.some(v=>!v.size||!v.color||!Number.isSafeInteger(Number(v.stock??0))||Number(v.stock??0)<0||(v.price!=null&&(!Number.isSafeInteger(Number(v.price))||Number(v.price)<0))))throw Object.assign(Error('Invalid product variant.'),{status:400});
   return {name,category,type:String(b.type||'Clothing'),price,stock,discount,sizes:Array.isArray(b.sizes)?b.sizes:[],colors:Array.isArray(b.colors)?b.colors:[],gallery,variants,description:String(b.description||'').slice(0,5000),active:b.active!==false};
