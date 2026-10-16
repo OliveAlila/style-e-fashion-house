@@ -85,3 +85,7 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 .product-prices del{font-size:clamp(9px,.8vw,12px);white-space:nowrap}
 .product-meta{align-items:baseline;gap:12px}
 @media(max-width:760px){.product-prices{gap:6px;padding-top:9px}.product-prices strong{font-size:11px}.product-prices del{font-size:9px}.product-meta{gap:8px}}
+
+/* Align sale and original prices to the left edge of each product card. */
+.product-meta{justify-content:flex-start!important}
+.product-prices{justify-content:flex-start!important;align-items:baseline!important;margin-left:0!important;margin-right:auto!important}
