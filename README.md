@@ -25,8 +25,6 @@ The project is a JavaScript monorepo with a React/Vite storefront, an Express AP
 - **Image storage:** Cloudinary environment variables are provided for upload-related configuration; confirm the deployed upload flow and stored image URLs when migrating.
 - **Hosting:** Vercel frontend; Render Express API and PostgreSQL.
 
-> PostgreSQL and MySQL are different database systems. pgAdmin 4 is for PostgreSQL; it is not the same as phpMyAdmin, which is commonly used for MySQL/MariaDB.
-
 ## Environment Variables
 
 Create local environment files from the templates. Do not commit real credentials.
