@@ -119,3 +119,26 @@ body{padding-bottom:calc(78px + env(safe-area-inset-bottom))}
  .product-detail-gallery img:first-child,
  .product-detail-gallery img:not(:first-child){grid-column:1!important;flex:none!important;width:100%!important;max-width:100%!important;height:auto!important;aspect-ratio:1/1!important;max-height:none!important;object-fit:contain!important;scroll-snap-align:start!important;border-radius:8px!important;background:#f7f6f2}
 }
+
+/* Mobile product gallery: Jumia-style horizontal image carousel, one large image per swipe. */
+@media(max-width:760px){
+ .product-detail-gallery{
+  display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;
+  width:100%!important;max-width:100%!important;box-sizing:border-box!important;
+  gap:0!important;overflow-x:auto!important;overflow-y:hidden!important;
+  padding:0!important;margin:0!important;scroll-snap-type:x mandatory!important;
+  scroll-behavior:smooth!important;-webkit-overflow-scrolling:touch!important;
+  scrollbar-width:none!important;
+ }
+ .product-detail-gallery::-webkit-scrollbar{display:none!important}
+ .product-detail-gallery img,
+ .product-detail-gallery img:first-child,
+ .product-detail-gallery img:not(:first-child){
+  display:block!important;flex:0 0 100%!important;width:100%!important;
+  min-width:100%!important;max-width:100%!important;height:auto!important;
+  aspect-ratio:1/1!important;max-height: min(72vh,620px)!important;
+  object-fit:contain!important;box-sizing:border-box!important;
+  grid-column:auto!important;scroll-snap-align:start!important;
+  border:0!important;border-radius:0!important;background:#f7f6f2!important;
+ }
+}
