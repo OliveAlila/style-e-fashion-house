@@ -78,3 +78,10 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom))}
 
 /* Product-card sale prices and wishlist-free display cards */
 .product-photo-wrap .wishlist-toggle{display:none!important}.product-discount-badge{position:absolute;left:0;top:0;padding:9px 12px;background:#f2dfbf;color:#6d4e24;font-size:12px;font-weight:700;z-index:2}.product-prices{display:flex;flex-direction:column;align-items:flex-end;gap:5px;padding-top:10px;white-space:nowrap}.product-prices strong{font-size:12px;font-weight:700}.product-prices del{font-size:10px;color:#99958c;font-weight:400}@media(max-width:760px){.product-prices{padding-top:9px}.product-prices strong{font-size:11px}.product-prices del{font-size:9px}}
+
+/* Keep product prices and compare-at prices on one horizontal line. */
+.product-prices{display:flex!important;flex-direction:row!important;align-items:baseline!important;justify-content:flex-end;flex-wrap:nowrap;gap:10px;white-space:nowrap;max-width:none;min-width:0;padding-top:10px}
+.product-prices strong{font-size:clamp(11px,1vw,15px);white-space:nowrap}
+.product-prices del{font-size:clamp(9px,.8vw,12px);white-space:nowrap}
+.product-meta{align-items:baseline;gap:12px}
+@media(max-width:760px){.product-prices{gap:6px;padding-top:9px}.product-prices strong{font-size:11px}.product-prices del{font-size:9px}.product-meta{gap:8px}}
