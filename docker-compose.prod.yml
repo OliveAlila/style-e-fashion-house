@@ -1,0 +1,109 @@
+version: '3.8'
+
+# =====================================================
+# PRODUCTION Docker Compose for Coolify/Contabo VPS
+# =====================================================
+# This configuration is optimized for production deployment
+# on Coolify platform with SSL/TLS termination at proxy level
+# =====================================================
+
+services:
+  # =====================================================
+  # PostgreSQL Database (Production)
+  # =====================================================
+  db:
+    image: postgres:16-alpine
+    container_name: style-fashion-db-prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-style_fashion_db}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+      - ./server/migrations/000_init_complete_schema.sql:/docker-entrypoint-initdb.d/000_init_complete_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $POSTGRES_USER -d $POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - internal
+    # Only expose port if debugging is needed, otherwise keep internal
+    # ports:
+    #   - "5432:5432"
+
+  # =====================================================
+  # Backend API Server (Production)
+  # =====================================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: style-fashion-api-prod
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      
+      # Database Connection (SSL enabled for production)
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-style_fashion_db}?sslmode=prefer
+      PGSSL: "false"
+      
+      # Security & Authentication
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
+      MARKETPLACE_AUTH_SECRET: ${MARKETPLACE_AUTH_SECRET}
+      
+      # Payment Gateway
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY}
+      
+      # Image Uploads
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET}
+      
+      # CORS Configuration
+      CLIENT_URL: ${CLIENT_URL}
+    ports:
+      - "4000:4000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - internal
+      - web
+    labels:
+      # Coolify labels for automatic SSL and reverse proxy
+      - "coolify.managed=true"
+      - "coolify.name=style-fashion-api"
+      - "coolify.port=4000"
+
+# =====================================================
+# Networks
+# =====================================================
+networks:
+  internal:
+    driver: bridge
+    internal: true
+  web:
+    driver: bridge
+    external: true
+
+# =====================================================
+# Volumes (Production - with backup strategy)
+# =====================================================
+volumes:
+  postgres_prod_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-./data}/postgres
