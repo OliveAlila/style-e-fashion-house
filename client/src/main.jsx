@@ -74,7 +74,7 @@ function routeView(pathname){const path=String(pathname||'/').toLowerCase().repl
 function App(){
  const [products,setProducts]=useState(fallback),[category,setCategory]=useState('All'),[search,setSearch]=useState(''),[cart,setCart]=useState([]),[drawer,setDrawer]=useState(false),[selected,setSelected]=useState(null),[size,setSize]=useState(''),[color,setColor]=useState(''),[view,setView]=useState(()=>routeView(window.location.pathname)),[detailId,setDetailId]=useState(()=>window.location.pathname.match(/^\/products\/([^/]+)/)?.[1]||''),[promotion,setPromotion]=useState({active:false,title:'STYLE SALE',subtitle:'A little something lovely, for less.',discount_percent:0,starts_at:'',ends_at:''}),[remaining,setRemaining]=useState(0),[sort,setSort]=useState('featured'),[notice,setNotice]=useState(''),[checkout,setCheckout]=useState({name:'',email:'',phone:'',address:'',town:'',county:'Nairobi',deliveryMethod:'standard'}),[busy,setBusy]=useState(false),[orderResult,setOrderResult]=useState(null),[adminToken,setAdminToken]=useState(''),[adminOrders,setAdminOrders]=useState([]),[adminMessage,setAdminMessage]=useState(''),[wishlist,setWishlist]=useState(()=>{try{return JSON.parse(window.localStorage.getItem('style-wishlist')||'[]')}catch{return []}});
  useEffect(()=>{if(!notice)return undefined;const timer=window.setTimeout(()=>setNotice(''),1800);return()=>window.clearTimeout(timer)},[notice]);
- useEffect(()=>{if(detailProduct){setSize(old=>old||detailProduct.sizes?.[0]||'');setColor(old=>old||detailProduct.colors?.[0]||'')}},[detailProduct]);
+ 
  useEffect(()=>{try{window.localStorage.setItem('style-wishlist',JSON.stringify(wishlist))}catch{}}
  ,[wishlist]);
  useEffect(()=>{let icon=document.querySelector('link[rel="icon"]');if(!icon){icon=document.createElement('link');icon.rel='icon';document.head.appendChild(icon)}icon.type='image/png';icon.href=logo;},[]);
@@ -83,6 +83,7 @@ function App(){
  const shown=useMemo(()=>{let list=products.filter(p=>(category==='All'||p.category===category)&&`${p.name} ${p.description} ${p.type}`.toLowerCase().includes(search.toLowerCase()));if(sort==='price-low')list.sort((a,b)=>a.price-b.price);if(sort==='price-high')list.sort((a,b)=>b.price-a.price);return list},[products,category,search,sort]);
  const categories=useMemo(()=>[...new Set(products.map(p=>String(p.category||'').trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)),[products]);
  const detailProduct=products.find(p=>String(p.id)===String(detailId));
+ useEffect(()=>{if(detailProduct){setSize(old=>old||detailProduct.sizes?.[0]||'');setColor(old=>old||detailProduct.colors?.[0]||'')}},[detailProduct]);
  const promotionIsLive=promotion?.active&&promotion?.ends_at&&new Date(promotion.ends_at).getTime()>Date.now()&&(!promotion.starts_at||new Date(promotion.starts_at).getTime()<=Date.now());
  useEffect(()=>{if(!promotion?.ends_at){setRemaining(0);return undefined}const tick=()=>setRemaining(Math.max(0,Math.floor((new Date(promotion.ends_at).getTime()-Date.now())/1000)));tick();const timer=window.setInterval(tick,1000);return()=>window.clearInterval(timer)},[promotion?.ends_at]);
  const count=cart.reduce((s,i)=>s+i.quantity,0),subtotal=cart.reduce((s,i)=>s+i.price*i.quantity,0);
